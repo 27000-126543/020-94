@@ -7,6 +7,7 @@ import {
   Settings,
   User,
   Bell,
+  FileSpreadsheet,
 } from 'lucide-react';
 
 const { Header, Sider, Content } = Layout;
@@ -34,9 +35,19 @@ export default function AppLayout({ children }: AppLayoutProps) {
       icon: <PackagePlus size={18} />,
       label: '入库登记',
     },
+    {
+      key: '/ledger',
+      icon: <FileSpreadsheet size={18} />,
+      label: '处理台账',
+    },
   ];
 
-  const selectedKey = location.pathname === '/inventory' ? '/inventory' : '/';
+  const selectedKey =
+    location.pathname === '/inventory'
+      ? '/inventory'
+      : location.pathname === '/ledger'
+      ? '/ledger'
+      : '/';
 
   return (
     <Layout className="min-h-screen">
@@ -83,7 +94,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
         >
           <div className="flex items-center gap-4">
             <h1 className="text-xl font-semibold text-gray-800 m-0">
-              {selectedKey === '/' ? '预警清单' : '入库登记'}
+              {selectedKey === '/'
+                ? '预警清单'
+                : selectedKey === '/inventory'
+                ? '入库登记'
+                : '处理台账'}
             </h1>
           </div>
           <div className="flex items-center gap-4">

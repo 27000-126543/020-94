@@ -1,5 +1,5 @@
 import dayjs from 'dayjs';
-import { Material, UsageRecord, ProcessRecord } from '@/types';
+import { Material, UsageRecord, ProcessRecord, BarcodeInfo } from '@/types';
 import { getStatusByExpiryDate, generateId } from '@/utils/status';
 
 const today = dayjs();
@@ -138,5 +138,96 @@ export const mockProcessRecords: ProcessRecord[] = [
     date: today.format('YYYY-MM-DD'),
     handler: '王护士长',
     remark: '已过期，申请报废',
+  },
+  {
+    id: generateId(),
+    materialId: mockMaterials[4].id,
+    type: 'returnExchange',
+    date: today.subtract(5, 'day').format('YYYY-MM-DD'),
+    handler: '张护士',
+    remark: '联系供应商换货，包装破损',
+  },
+];
+
+export const mockBarcodeLibrary: BarcodeInfo[] = [
+  {
+    barcode: '6901234567890',
+    name: '3M Z250 光固化树脂',
+    category: 'resin',
+    specification: 'A3 色 4g/支',
+    unit: '支',
+    defaultLocation: '冷藏柜 A-01',
+  },
+  {
+    barcode: '6901234567891',
+    name: '3M Z350XT 纳米树脂',
+    category: 'resin',
+    specification: 'A2 色 3g/支',
+    unit: '支',
+    defaultLocation: '冷藏柜 A-02',
+  },
+  {
+    barcode: '6901234567892',
+    name: '可乐丽 粘接剂',
+    category: 'adhesive',
+    specification: '6ml/瓶',
+    unit: '瓶',
+    defaultLocation: '冷藏柜 B-02',
+  },
+  {
+    barcode: '6901234567893',
+    name: '碧蓝麻 复方阿替卡因',
+    category: 'anesthetic',
+    specification: '1.7ml/支',
+    unit: '支',
+    defaultLocation: '麻药柜 C-01',
+  },
+  {
+    barcode: '6901234567894',
+    name: '必兰 麻药',
+    category: 'anesthetic',
+    specification: '1.7ml/支',
+    unit: '支',
+    defaultLocation: '麻药柜 C-03',
+  },
+  {
+    barcode: '6901234567895',
+    name: '登士柏 AH Plus 根管糊剂',
+    category: 'rootCanal',
+    specification: '粉+液套装',
+    unit: '套',
+    defaultLocation: '材料柜 D-01',
+  },
+  {
+    barcode: '6901234567896',
+    name: '3M 加聚型硅橡胶',
+    category: 'impression',
+    specification: '基质+催化剂',
+    unit: '套',
+    defaultLocation: '材料柜 E-01',
+  },
+  {
+    barcode: '6901234567897',
+    name: '贺利氏 藻酸盐印模材',
+    category: 'impression',
+    specification: '500g/袋',
+    unit: '袋',
+    defaultLocation: '材料柜 E-02',
+  },
+  {
+    barcode: '6901234567898',
+    name: '义获嘉 粘接剂',
+    category: 'adhesive',
+    specification: '4ml/瓶',
+    unit: '瓶',
+    defaultLocation: '冷藏柜 B-03',
+  },
+  {
+    barcode: '6901234567899',
+    name: '斯康杜尼 甲哌卡因',
+    category: 'anesthetic',
+    specification: '1.8ml/支',
+    unit: '支',
+    defaultLocation: '麻药柜 C-02',
   },
 ];

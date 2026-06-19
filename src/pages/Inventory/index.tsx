@@ -17,6 +17,8 @@ import {
   Tabs,
   Empty,
   Popconfirm,
+  Alert,
+  Descriptions,
 } from 'antd';
 import {
   ScanLine,
@@ -35,11 +37,15 @@ import {
   Box,
   Clock,
   Trash2,
+  CheckCircle,
+  ArrowRight,
+  Barcode,
+  AlertCircle,
 } from 'lucide-react';
 import { useMaterialStore } from '@/store/useMaterialStore';
-import { MaterialCategory, Material } from '@/types';
+import { MaterialCategory, Material, BarcodeInfo } from '@/types';
 import { CATEGORY_OPTIONS, getCategoryLabel, STATUS_MAP } from '@/utils/status';
-import { formatDate, getRemainingDays } from '@/utils/date';
+import { getRemainingDays } from '@/utils/date';
 import StatusTag from '@/components/StatusTag/StatusTag';
 import dayjs from 'dayjs';
 
@@ -74,11 +80,17 @@ const categoryIconMap: Record<string, React.ReactNode> = {
   other: <Box size={18} />,
 };
 
+type ScanState = 'idle' | 'found' | 'notfound';
+
 export default function Inventory() {
-  const { materials, addMaterial, deleteMaterial } = useMaterialStore();
+  const { materials, addMaterial, deleteMaterial, getBarcodeInfo, addBarcodeInfo } = useMaterialStore();
   const [form] = Form.useForm();
+  const [scanForm] = Form.useForm();
   const [activeTab, setActiveTab] = useState('form');
   const [scanInput, setScanInput] = useState('');
+  const [scanState, setScanState] = useState<ScanState>('idle');
+  const [scannedBarcode, setScannedBarcode] = useState<string>('');
+  const [foundBarcodeInfo, setFoundBarcodeInfo] = useState<BarcodeInfo | null>(null);
 
   const recentMaterials = [...materials].sort(
     (a, b) => new Date(b.inDate).getTime() - new Date(a.inDate).getTime()
@@ -118,13 +130,78 @@ export default function Inventory() {
     }
   };
 
-  const handleScanSubmit = () => {
-    if (!scanInput.trim()) {
+  const handleScanQuery = () => {
+    const barcode = scanInput.trim();
+    if (!barcode) {
       message.warning('请输入或扫描条码');
       return;
     }
-    message.info('扫码功能开发中，请使用手动录入');
+    setScannedBarcode(barcode);
+    const info = getBarcodeInfo(barcode);
+    if (info) {
+      setFoundBarcodeInfo(info);
+      setScanState('found');
+      scanForm.setFieldsValue({
+        name: info.name,
+        category: info.category,
+        specification: info.specification,
+        unit: info.unit,
+        location: info.defaultLocation,
+      });
+    } else {
+      setFoundBarcodeInfo(null);
+      setScanState('notfound');
+      scanForm.resetFields();
+    }
+  };
+
+  const handleScanSubmit = async () => {
+    try {
+      const values = await scanForm.validateFields();
+
+      addMaterial({
+        name: values.name,
+        category: values.category,
+        batchNo: values.batchNo,
+        specification: values.specification,
+        expiryDate: values.expiryDate.format('YYYY-MM-DD'),
+        location: values.location,
+        quantity: values.quantity,
+        unit: values.unit || '支',
+        handler: values.handler,
+        remark: values.remark,
+      });
+
+      if (scanState === 'notfound' && scannedBarcode) {
+        addBarcodeInfo({
+          barcode: scannedBarcode,
+          name: values.name,
+          category: values.category,
+          specification: values.specification,
+          unit: values.unit || '支',
+          defaultLocation: values.location,
+        });
+        message.success('入库成功，条码信息已保存');
+      } else {
+        message.success('入库登记成功');
+      }
+
+      scanForm.resetFields();
+      setScanState('idle');
+      setScannedBarcode('');
+      setScanInput('');
+      setFoundBarcodeInfo(null);
+    } catch {
+      // validation failed
+    }
+  };
+
+  const handleResetScan = () => {
+    scanForm.resetFields();
+    setScanState('idle');
+    setScannedBarcode('');
     setScanInput('');
+    setFoundBarcodeInfo(null);
   };
 
   const handleDelete = (id: string) => {
@@ -135,15 +212,30 @@ export default function Inventory() {
   const tabItems = [
     {
       key: 'form',
-      label: '手动录入',
+      label: (
+        <span className="flex items-center gap-1">
+          <Plus size={16} />
+          手动录入
+        </span>
+      ),
     },
     {
       key: 'scan',
-      label: '扫码录入',
+      label: (
+        <span className="flex items-center gap-1">
+          <ScanLine size={16} />
+          扫码录入
+        </span>
+      ),
     },
     {
       key: 'quick',
-      label: '常用材料',
+      label: (
+        <span className="flex items-center gap-1">
+          <Package size={16} />
+          常用材料
+        </span>
+      ),
     },
   ];
 
@@ -232,7 +324,6 @@ export default function Inventory() {
                         style={{ width: '100%' }}
                         placeholder="请选择有效期"
                         size="large"
-                        disabledDate={(current) => current && current < dayjs().startOf('day')}
                       />
                     </Form.Item>
                   </Col>
@@ -309,26 +400,221 @@ export default function Inventory() {
             )}
 
             {activeTab === 'scan' && (
-              <div className="py-8 text-center">
-                <div className="w-24 h-24 mx-auto mb-6 rounded-2xl bg-blue-50 flex items-center justify-center">
-                  <ScanLine size={48} className="text-blue-500" />
-                </div>
-                <h3 className="text-lg font-medium text-gray-800 mb-2">扫码入库</h3>
-                <p className="text-gray-500 text-sm mb-6">使用条码枪扫描材料包装条码，快速录入信息</p>
-                <div className="max-w-md mx-auto">
-                  <Input.Search
-                    size="large"
-                    placeholder="请扫描或输入条码"
-                    value={scanInput}
-                    onChange={(e) => setScanInput(e.target.value)}
-                    onSearch={handleScanSubmit}
-                    enterButton="确认"
-                    allowClear
-                  />
-                  <p className="text-xs text-gray-400 mt-3">
-                    提示：扫码功能需配合条码枪使用，也可手动输入条码
+              <div className="mt-4">
+                <div className="mb-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center">
+                      <Barcode size={28} className="text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-semibold text-gray-800 m-0">扫码快速入库</h3>
+                      <p className="text-sm text-gray-500 m-0">使用条码枪扫描或手动输入包装条码</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <Input.Search
+                      size="large"
+                      placeholder="请扫描或输入13位条码，例如：6901234567890"
+                      value={scanInput}
+                      onChange={(e) => setScanInput(e.target.value)}
+                      onSearch={handleScanQuery}
+                      enterButton="查询"
+                      allowClear
+                      style={{ flex: 1 }}
+                      prefix={<ScanLine size={18} className="text-gray-400" />}
+                    />
+                    {scanState !== 'idle' && (
+                      <Button size="large" onClick={handleResetScan}>
+                        重新扫码
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-2">
+                    提示：首次扫码新材料需补全信息，之后再次扫码会自动带出
                   </p>
                 </div>
+
+                {scanState === 'found' && foundBarcodeInfo && (
+                  <>
+                    <Alert
+                      type="success"
+                      showIcon
+                      icon={<CheckCircle size={18} />}
+                      message="条码已识别"
+                      description={
+                        <div>
+                          已从条码库自动带出以下信息，请补充批号、有效期和数量后确认入库
+                        </div>
+                      }
+                      className="mb-4"
+                    />
+                    <Descriptions
+                      column={2}
+                      size="small"
+                      className="mb-4"
+                      styles={{
+                        label: { backgroundColor: '#f6ffed', width: 100 },
+                        content: { backgroundColor: '#fff' },
+                      }}
+                    >
+                      <Descriptions.Item label="材料名称">{foundBarcodeInfo.name}</Descriptions.Item>
+                      <Descriptions.Item label="分类">{getCategoryLabel(foundBarcodeInfo.category)}</Descriptions.Item>
+                      <Descriptions.Item label="规格">{foundBarcodeInfo.specification}</Descriptions.Item>
+                      <Descriptions.Item label="单位">{foundBarcodeInfo.unit}</Descriptions.Item>
+                      <Descriptions.Item label="默认位置" span={2}>{foundBarcodeInfo.defaultLocation}</Descriptions.Item>
+                    </Descriptions>
+                  </>
+                )}
+
+                {scanState === 'notfound' && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    icon={<AlertCircle size={18} />}
+                    message="新条码未登记"
+                    description="该条码尚未在系统中登记，请完整填写以下信息，入库成功后将自动保存条码信息"
+                    className="mb-4"
+                  />
+                )}
+
+                {scanState !== 'idle' && (
+                  <Form form={scanForm} layout="vertical">
+                    {scanState === 'notfound' && (
+                      <Row gutter={16}>
+                        <Col span={16}>
+                          <Form.Item
+                            name="name"
+                            label="材料名称"
+                            rules={[{ required: true, message: '请输入材料名称' }]}
+                          >
+                            <Input placeholder="请输入材料名称" size="large" />
+                          </Form.Item>
+                        </Col>
+                        <Col span={8}>
+                          <Form.Item
+                            name="category"
+                            label="材料分类"
+                            rules={[{ required: true, message: '请选择材料分类' }]}
+                          >
+                            <Select placeholder="请选择分类" size="large">
+                              {CATEGORY_OPTIONS.map((opt) => (
+                                <Option key={opt.value} value={opt.value}>
+                                  <span className="flex items-center gap-2">
+                                    {categoryIconMap[opt.value]}
+                                    {opt.label}
+                                  </span>
+                                </Option>
+                              ))}
+                            </Select>
+                          </Form.Item>
+                        </Col>
+                      </Row>
+                    )}
+
+                    <Row gutter={16}>
+                      <Col span={12}>
+                        <Form.Item
+                          name="batchNo"
+                          label="生产批号"
+                          rules={[{ required: true, message: '请输入生产批号' }]}
+                        >
+                          <Input placeholder="请输入生产批号" prefix={<TagIcon size={16} className="text-gray-400" />} />
+                        </Form.Item>
+                      </Col>
+                      <Col span={12}>
+                        <Form.Item
+                          name="specification"
+                          label="规格型号"
+                          rules={[{ required: true, message: '请输入规格型号' }]}
+                        >
+                          <Input placeholder="如：A3 色 4g/支" prefix={<FileText size={16} className="text-gray-400" />} />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+
+                    <Row gutter={16}>
+                      <Col span={12}>
+                        <Form.Item
+                          name="expiryDate"
+                          label="有效期至"
+                          rules={[{ required: true, message: '请选择有效期' }]}
+                        >
+                          <DatePicker
+                            style={{ width: '100%' }}
+                            placeholder="请选择有效期"
+                            size="large"
+                          />
+                        </Form.Item>
+                      </Col>
+                      <Col span={12}>
+                        <Form.Item
+                          name="location"
+                          label="存放位置"
+                          rules={[{ required: true, message: '请输入存放位置' }]}
+                        >
+                          <Input placeholder="如：冷藏柜 A-01" prefix={<MapPin size={16} className="text-gray-400" />} />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+
+                    <Row gutter={16}>
+                      <Col span={12}>
+                        <Form.Item
+                          name="quantity"
+                          label="入库数量"
+                          rules={[{ required: true, message: '请输入入库数量' }]}
+                        >
+                          <InputNumber
+                            min={1}
+                            style={{ width: '100%' }}
+                            placeholder="请输入数量"
+                            size="large"
+                          />
+                        </Form.Item>
+                      </Col>
+                      <Col span={12}>
+                        <Form.Item name="unit" label="计量单位" initialValue="支">
+                          <Select size="large">
+                            <Option value="支">支</Option>
+                            <Option value="瓶">瓶</Option>
+                            <Option value="袋">袋</Option>
+                            <Option value="套">套</Option>
+                            <Option value="盒">盒</Option>
+                            <Option value="包">包</Option>
+                          </Select>
+                        </Form.Item>
+                      </Col>
+                    </Row>
+
+                    <Form.Item
+                      name="handler"
+                      label="经办人"
+                      rules={[{ required: true, message: '请输入经办人姓名' }]}
+                    >
+                      <Input placeholder="请输入经办人姓名" prefix={<User size={16} className="text-gray-400" />} />
+                    </Form.Item>
+
+                    <Form.Item name="remark" label="备注">
+                      <TextArea rows={2} placeholder="请输入备注信息（选填）" maxLength={200} showCount />
+                    </Form.Item>
+
+                    <Divider />
+
+                    <Form.Item className="mb-0">
+                      <Space>
+                        <Button
+                          type="primary"
+                          size="large"
+                          icon={<Plus size={18} />}
+                          onClick={handleScanSubmit}
+                        >
+                          确认入库
+                          {scanState === 'notfound' && '并保存条码'}
+                        </Button>
+                      </Space>
+                    </Form.Item>
+                  </Form>
+                )}
               </div>
             )}
 
@@ -433,6 +719,11 @@ export default function Inventory() {
                                 剩余 {remainingDays} 天到期
                               </div>
                             )}
+                            {remainingDays <= 0 && (
+                              <div className="text-xs text-red-500">
+                                已过期 {Math.abs(remainingDays)} 天
+                              </div>
+                            )}
                           </div>
                         }
                       />
@@ -456,7 +747,7 @@ export default function Inventory() {
             className="shadow-sm"
           >
             <div className="space-y-3">
-              {CATEGORY_OPTIONS.map((cat) => {
+              {CATEGORY_OPTIONS.map((cat, idx) => {
                 const count = materials.filter((m) => m.category === cat.value).length;
                 const totalQty = materials
                   .filter((m) => m.category === cat.value)
@@ -466,7 +757,7 @@ export default function Inventory() {
                     <div className="flex items-center gap-2">
                       <div
                         className="w-8 h-8 rounded-md flex items-center justify-center text-white"
-                        style={{ backgroundColor: `hsl(${CATEGORY_OPTIONS.findIndex(c => c.value === cat.value) * 45}, 70%, 55%)` }}
+                        style={{ backgroundColor: `hsl(${idx * 45}, 70%, 55%)` }}
                       >
                         {categoryIconMap[cat.value]}
                       </div>

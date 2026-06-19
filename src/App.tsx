@@ -6,6 +6,7 @@ import 'dayjs/locale/zh-cn';
 import AppLayout from '@/components/Layout/AppLayout';
 import WarningList from '@/pages/WarningList';
 import Inventory from '@/pages/Inventory';
+import ProcessLedger from '@/pages/ProcessLedger';
 
 dayjs.locale('zh-cn');
 
@@ -26,6 +27,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<WarningList />} />
             <Route path="/inventory" element={<Inventory />} />
+            <Route path="/ledger" element={<ProcessLedger />} />
           </Routes>
         </AppLayout>
       </Router>

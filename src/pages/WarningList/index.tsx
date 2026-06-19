@@ -16,6 +16,9 @@ import {
   message,
   Tabs,
   Empty,
+  Segmented,
+  Card,
+  Descriptions,
 } from 'antd';
 import {
   Search,
@@ -33,13 +36,15 @@ import {
   RefreshCw,
   Send,
   TrendingDown,
+  Layers,
+  List as ListIcon,
 } from 'lucide-react';
 import StatCard from '@/components/StatCard/StatCard';
 import StatusTag from '@/components/StatusTag/StatusTag';
 import { useMaterialStore } from '@/store/useMaterialStore';
-import { Material, MaterialStatus, ProcessType, MaterialCategory } from '@/types';
-import { getRemainingDays, formatDate, formatDateTime } from '@/utils/date';
-import { CATEGORY_OPTIONS, STATUS_MAP, PROCESS_TYPE_MAP, getCategoryLabel } from '@/utils/status';
+import { Material, MaterialStatus, ProcessType, MaterialCategory, BatchSummary } from '@/types';
+import { getRemainingDays, formatDate } from '@/utils/date';
+import { CATEGORY_OPTIONS, STATUS_MAP, PROCESS_TYPE_MAP, getCategoryLabel, getStatusByExpiryDate } from '@/utils/status';
 
 const { Search: SearchInput } = Input;
 const { Option } = Select;
@@ -51,6 +56,8 @@ interface FilterState {
   keyword: string;
 }
 
+type ViewMode = 'detail' | 'batch';
+
 export default function WarningList() {
   const {
     materials,
@@ -60,6 +67,7 @@ export default function WarningList() {
     getProcessRecordsByMaterialId,
     addProcessRecord,
     refreshStatuses,
+    getBatchSummaries,
   } = useMaterialStore();
 
   const [filters, setFilters] = useState<FilterState>({
@@ -67,7 +75,9 @@ export default function WarningList() {
     category: '',
     keyword: '',
   });
+  const [viewMode, setViewMode] = useState<ViewMode>('detail');
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
+  const [selectedBatch, setSelectedBatch] = useState<BatchSummary | null>(null);
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [processModalVisible, setProcessModalVisible] = useState(false);
   const [processType, setProcessType] = useState<ProcessType | null>(null);
@@ -83,6 +93,29 @@ export default function WarningList() {
       }),
     [materials, filters]
   );
+
+  const batchSummaries = useMemo(() => {
+    let result = getBatchSummaries();
+    if (filters.status && filters.status !== 'all') {
+      result = result.filter((b) => {
+        const status = getStatusByExpiryDate(b.expiryDate);
+        return status === filters.status;
+      });
+    }
+    if (filters.category) {
+      result = result.filter((b) => b.category === filters.category);
+    }
+    if (filters.keyword) {
+      const kw = filters.keyword.toLowerCase();
+      result = result.filter(
+        (b) =>
+          b.name.toLowerCase().includes(kw) ||
+          b.batchNo.toLowerCase().includes(kw) ||
+          b.specification.toLowerCase().includes(kw)
+      );
+    }
+    return result;
+  }, [materials, filters]);
 
   useEffect(() => {
     refreshStatuses();
@@ -145,6 +178,13 @@ export default function WarningList() {
 
   const handleViewDetail = (material: Material) => {
     setSelectedMaterial(material);
+    setSelectedBatch(null);
+    setDrawerVisible(true);
+  };
+
+  const handleViewBatch = (batch: BatchSummary) => {
+    setSelectedBatch(batch);
+    setSelectedMaterial(null);
     setDrawerVisible(true);
   };
 
@@ -167,13 +207,25 @@ export default function WarningList() {
         message.success('处理记录已保存');
         setProcessModalVisible(false);
         setProcessType(null);
+      } else if (selectedBatch && processType) {
+        selectedBatch.locations.forEach((loc) => {
+          addProcessRecord({
+            materialId: loc.materialId,
+            type: processType,
+            handler: values.handler,
+            remark: values.remark,
+          });
+        });
+        message.success(`处理记录已保存（共 ${selectedBatch.locations.length} 条）`);
+        setProcessModalVisible(false);
+        setProcessType(null);
       }
     } catch {
       // validation failed
     }
   };
 
-  const columns = [
+  const detailColumns = [
     {
       title: '材料名称',
       dataIndex: 'name',
@@ -291,7 +343,135 @@ export default function WarningList() {
     },
   ];
 
-  const renderDetailContent = () => {
+  const batchColumns = [
+    {
+      title: '材料名称',
+      dataIndex: 'name',
+      key: 'name',
+      width: 240,
+      render: (text: string, record: BatchSummary) => {
+        const status = getStatusByExpiryDate(record.expiryDate);
+        return (
+          <div className="flex items-center gap-3">
+            <div
+              className="w-10 h-10 rounded-lg flex items-center justify-center text-white text-sm font-medium"
+              style={{ backgroundColor: STATUS_MAP[status].color }}
+            >
+              {text.charAt(0)}
+            </div>
+            <div>
+              <div className="font-medium text-gray-800">{text}</div>
+              <div className="text-xs text-gray-400">{getCategoryLabel(record.category)}</div>
+            </div>
+          </div>
+        );
+      },
+    },
+    {
+      title: '批号',
+      dataIndex: 'batchNo',
+      key: 'batchNo',
+      width: 130,
+      render: (text: string) => <span className="font-mono text-gray-600 text-sm">{text}</span>,
+    },
+    {
+      title: '规格',
+      dataIndex: 'specification',
+      key: 'specification',
+      width: 180,
+      render: (text: string) => <span className="text-gray-600">{text}</span>,
+    },
+    {
+      title: '最早到期',
+      dataIndex: 'expiryDate',
+      key: 'expiryDate',
+      width: 130,
+      render: (text: string, record: BatchSummary) => {
+        const status = getStatusByExpiryDate(record.expiryDate);
+        return (
+          <div className="flex items-center gap-2">
+            <Calendar size={14} className="text-gray-400" />
+            <span style={{ color: STATUS_MAP[status].color, fontWeight: 500 }}>{text}</span>
+          </div>
+        );
+      },
+    },
+    {
+      title: '剩余天数',
+      dataIndex: 'expiryDate',
+      key: 'remainingDays',
+      width: 120,
+      sorter: (a: BatchSummary, b: BatchSummary) =>
+        getRemainingDays(a.expiryDate) - getRemainingDays(b.expiryDate),
+      render: (text: string, record: BatchSummary) => {
+        const days = getRemainingDays(text);
+        const status = getStatusByExpiryDate(record.expiryDate);
+        const isExpired = days <= 0;
+        return (
+          <div className="flex items-center gap-2">
+            <span className="text-lg font-bold" style={{ color: STATUS_MAP[status].color }}>
+              {isExpired ? `过期${Math.abs(days)}` : days}
+            </span>
+            <span className="text-gray-400 text-sm">天</span>
+          </div>
+        );
+      },
+    },
+    {
+      title: '总库存',
+      dataIndex: 'totalQuantity',
+      key: 'totalQuantity',
+      width: 120,
+      render: (qty: number, record: BatchSummary) => (
+        <span className="text-gray-700">
+          <span className="font-semibold text-lg">{qty}</span> {record.unit}
+        </span>
+      ),
+    },
+    {
+      title: '存放位置',
+      dataIndex: 'locations',
+      key: 'locations',
+      width: 180,
+      render: (locations: BatchSummary['locations']) => (
+        <div>
+          <Tag color="blue">{locations.length} 个位置</Tag>
+          <div className="text-xs text-gray-400 mt-1">
+            {locations.slice(0, 2).map((l) => l.location).join('、')}
+            {locations.length > 2 && ' 等'}
+          </div>
+        </div>
+      ),
+    },
+    {
+      title: '状态',
+      dataIndex: 'expiryDate',
+      key: 'status',
+      width: 110,
+      render: (text: string, record: BatchSummary) => {
+        const status = getStatusByExpiryDate(record.expiryDate);
+        return <StatusTag status={status} showPulse />;
+      },
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 120,
+      fixed: 'right' as const,
+      render: (_: unknown, record: BatchSummary) => (
+        <Button
+          type="link"
+          size="small"
+          icon={<ArrowRight size={14} />}
+          onClick={() => handleViewBatch(record)}
+        >
+          查看批次
+        </Button>
+      ),
+    },
+  ];
+
+  const renderMaterialDetail = () => {
     if (!selectedMaterial) return null;
 
     const usageRecords = getUsageRecordsByMaterialId(selectedMaterial.id);
@@ -343,59 +523,19 @@ export default function WarningList() {
               </div>
             </div>
 
-            <div className="space-y-3">
-              <div className="flex items-start gap-3">
-                <FileText size={16} className="text-gray-400 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-xs text-gray-400 mb-0.5">批号</p>
-                  <p className="text-gray-700 font-mono m-0">{selectedMaterial.batchNo}</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <Package size={16} className="text-gray-400 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-xs text-gray-400 mb-0.5">规格</p>
-                  <p className="text-gray-700 m-0">{selectedMaterial.specification}</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <Calendar size={16} className="text-gray-400 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-xs text-gray-400 mb-0.5">有效期至</p>
-                  <p className="text-gray-700 m-0">{selectedMaterial.expiryDate}</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <MapPin size={16} className="text-gray-400 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-xs text-gray-400 mb-0.5">存放位置</p>
-                  <p className="text-gray-700 m-0">{selectedMaterial.location}</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <User size={16} className="text-gray-400 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-xs text-gray-400 mb-0.5">入库经办人</p>
-                  <p className="text-gray-700 m-0">{selectedMaterial.handler}</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <Calendar size={16} className="text-gray-400 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-xs text-gray-400 mb-0.5">入库日期</p>
-                  <p className="text-gray-700 m-0">{selectedMaterial.inDate}</p>
-                </div>
-              </div>
+            <Descriptions column={1} size="small" bordered>
+              <Descriptions.Item label="批号">
+                <span className="font-mono">{selectedMaterial.batchNo}</span>
+              </Descriptions.Item>
+              <Descriptions.Item label="规格">{selectedMaterial.specification}</Descriptions.Item>
+              <Descriptions.Item label="有效期至">{selectedMaterial.expiryDate}</Descriptions.Item>
+              <Descriptions.Item label="存放位置">{selectedMaterial.location}</Descriptions.Item>
+              <Descriptions.Item label="入库经办人">{selectedMaterial.handler}</Descriptions.Item>
+              <Descriptions.Item label="入库日期">{selectedMaterial.inDate}</Descriptions.Item>
               {selectedMaterial.remark && (
-                <div className="flex items-start gap-3">
-                  <FileText size={16} className="text-gray-400 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="text-xs text-gray-400 mb-0.5">备注</p>
-                    <p className="text-gray-700 m-0">{selectedMaterial.remark}</p>
-                  </div>
-                </div>
+                <Descriptions.Item label="备注">{selectedMaterial.remark}</Descriptions.Item>
               )}
-            </div>
+            </Descriptions>
           </div>
         ),
       },
@@ -492,6 +632,208 @@ export default function WarningList() {
     return <Tabs items={tabItems} />;
   };
 
+  const renderBatchDetail = () => {
+    if (!selectedBatch) return null;
+
+    const status = getStatusByExpiryDate(selectedBatch.expiryDate);
+    const remainingDays = getRemainingDays(selectedBatch.expiryDate);
+    const allProcessRecords = selectedBatch.locations.flatMap((loc) =>
+      getProcessRecordsByMaterialId(loc.materialId)
+    );
+
+    const tabItems = [
+      {
+        key: 'overview',
+        label: '批次总览',
+        children: (
+          <div className="space-y-6">
+            <div className="p-4 rounded-lg bg-gray-50">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div
+                    className="w-12 h-12 rounded-xl flex items-center justify-center text-white text-lg font-bold"
+                    style={{ backgroundColor: STATUS_MAP[status].color }}
+                  >
+                    {selectedBatch.name.charAt(0)}
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-800 m-0">
+                      {selectedBatch.name}
+                    </h3>
+                    <p className="text-sm text-gray-500 m-0">
+                      批号：<span className="font-mono">{selectedBatch.batchNo}</span>
+                    </p>
+                  </div>
+                </div>
+                <StatusTag status={status} showPulse />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div className="p-3 rounded-lg bg-blue-50 text-center">
+                <p className="text-xs text-blue-500 mb-1">剩余天数</p>
+                <p className="text-xl font-bold text-blue-600 m-0">
+                  {remainingDays > 0 ? remainingDays : `过期${Math.abs(remainingDays)}`}
+                  <span className="text-xs font-normal ml-1">天</span>
+                </p>
+              </div>
+              <div className="p-3 rounded-lg bg-green-50 text-center">
+                <p className="text-xs text-green-500 mb-1">总库存</p>
+                <p className="text-xl font-bold text-green-600 m-0">
+                  {selectedBatch.totalQuantity}
+                  <span className="text-xs font-normal ml-1">{selectedBatch.unit}</span>
+                </p>
+              </div>
+              <div className="p-3 rounded-lg bg-purple-50 text-center">
+                <p className="text-xs text-purple-500 mb-1">存放位置</p>
+                <p className="text-xl font-bold text-purple-600 m-0">
+                  {selectedBatch.locations.length}
+                  <span className="text-xs font-normal ml-1">个</span>
+                </p>
+              </div>
+            </div>
+
+            <Descriptions column={1} size="small" bordered>
+              <Descriptions.Item label="规格">{selectedBatch.specification}</Descriptions.Item>
+              <Descriptions.Item label="分类">{getCategoryLabel(selectedBatch.category)}</Descriptions.Item>
+              <Descriptions.Item label="最早到期日">{selectedBatch.expiryDate}</Descriptions.Item>
+            </Descriptions>
+          </div>
+        ),
+      },
+      {
+        key: 'locations',
+        label: `库存分布 (${selectedBatch.locations.length})`,
+        children: (
+          <div className="space-y-3">
+            {selectedBatch.locations.map((loc, idx) => {
+              const mat = materials.find((m) => m.id === loc.materialId);
+              const matStatus = mat ? STATUS_MAP[mat.status] : STATUS_MAP.normal;
+              return (
+                <Card key={idx} size="small" className="shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-10 h-10 rounded-lg flex items-center justify-center"
+                        style={{ backgroundColor: matStatus.bgColor }}
+                      >
+                        <MapPin size={18} style={{ color: matStatus.color }} />
+                      </div>
+                      <div>
+                        <p className="font-medium text-gray-800 m-0">{loc.location}</p>
+                        <p className="text-sm text-gray-500 m-0">
+                          批号：<span className="font-mono text-xs">{selectedBatch.batchNo}</span>
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xl font-bold m-0" style={{ color: matStatus.color }}>
+                        {loc.quantity} <span className="text-sm font-normal text-gray-500">{selectedBatch.unit}</span>
+                      </p>
+                      {mat && <StatusTag status={mat.status} />}
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        ),
+      },
+      {
+        key: 'usage',
+        label: `最近领用 (${selectedBatch.recentUsage.length})`,
+        children:
+          selectedBatch.recentUsage.length > 0 ? (
+            <List
+              dataSource={selectedBatch.recentUsage}
+              renderItem={(item) => (
+                <List.Item className="px-0">
+                  <List.Item.Meta
+                    avatar={
+                      <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                        <TrendingDown size={18} className="text-blue-500" />
+                      </div>
+                    }
+                    title={
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-800 font-medium">{item.user}</span>
+                        <Tag color="red">- {item.quantity} {selectedBatch.unit}</Tag>
+                      </div>
+                    }
+                    description={
+                      <div className="text-sm text-gray-500">
+                        <p>{item.department} · {formatDate(item.date)}</p>
+                        {item.remark && <p className="mt-1">{item.remark}</p>}
+                      </div>
+                    }
+                  />
+                </List.Item>
+              )}
+            />
+          ) : (
+            <Empty description="暂无领用记录" />
+          ),
+      },
+      {
+        key: 'process',
+        label: `处理记录 (${allProcessRecords.length})`,
+        children:
+          allProcessRecords.length > 0 ? (
+            <List
+              dataSource={allProcessRecords.sort(
+                (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+              )}
+              renderItem={(item) => (
+                <List.Item className="px-0">
+                  <List.Item.Meta
+                    avatar={
+                      <div
+                        className="w-10 h-10 rounded-full flex items-center justify-center"
+                        style={{
+                          backgroundColor: `${PROCESS_TYPE_MAP[item.type].color}15`,
+                        }}
+                      >
+                        {item.type === 'priorityUse' && (
+                          <RefreshCw size={18} style={{ color: PROCESS_TYPE_MAP[item.type].color }} />
+                        )}
+                        {item.type === 'returnExchange' && (
+                          <Send size={18} style={{ color: PROCESS_TYPE_MAP[item.type].color }} />
+                        )}
+                        {item.type === 'scrap' && (
+                          <Trash2 size={18} style={{ color: PROCESS_TYPE_MAP[item.type].color }} />
+                        )}
+                      </div>
+                    }
+                    title={
+                      <div className="flex items-center justify-between">
+                        <span
+                          className="font-medium"
+                          style={{ color: PROCESS_TYPE_MAP[item.type].color }}
+                        >
+                          {PROCESS_TYPE_MAP[item.type].label}
+                        </span>
+                        <span className="text-xs text-gray-400">{formatDate(item.date)}</span>
+                      </div>
+                    }
+                    description={
+                      <div className="text-sm text-gray-500">
+                        <p>经办人：{item.handler}</p>
+                        {item.remark && <p className="mt-1">{item.remark}</p>}
+                      </div>
+                    }
+                  />
+                </List.Item>
+              )}
+            />
+          ) : (
+            <Empty description="暂无处理记录" />
+          ),
+      },
+    ];
+
+    return <Tabs items={tabItems} />;
+  };
+
   return (
     <div className="space-y-6">
       {/* 统计卡片 */}
@@ -513,6 +855,17 @@ export default function WarningList() {
 
       {/* 筛选栏 */}
       <div className="flex flex-wrap items-center gap-4 p-4 bg-gray-50 rounded-lg">
+        <div className="flex items-center gap-2">
+          <span className="text-gray-600 text-sm">视图：</span>
+          <Segmented
+            value={viewMode}
+            onChange={(value) => setViewMode(value as ViewMode)}
+            options={[
+              { label: <span className="flex items-center gap-1"><ListIcon size={14} />明细视图</span>, value: 'detail' },
+              { label: <span className="flex items-center gap-1"><Layers size={14} />批次视图</span>, value: 'batch' },
+            ]}
+          />
+        </div>
         <div className="flex items-center gap-2">
           <span className="text-gray-600 text-sm">状态筛选：</span>
           <Select
@@ -548,7 +901,7 @@ export default function WarningList() {
         </div>
         <div className="flex-1 min-w-[200px]">
           <SearchInput
-            placeholder="搜索材料名称、批号、规格"
+            placeholder={viewMode === 'batch' ? '搜索材料名称、批号' : '搜索材料名称、批号、规格'}
             allowClear
             size="middle"
             value={filters.keyword}
@@ -561,42 +914,80 @@ export default function WarningList() {
 
       {/* 材料列表 */}
       <div className="bg-white rounded-lg">
-        <Table
-          columns={columns}
-          dataSource={filteredMaterials}
-          rowKey="id"
-          pagination={{
-            pageSize: 10,
-            showSizeChanger: true,
-            showTotal: (total) => `共 ${total} 条记录`,
-          }}
-          scroll={{ x: 1200 }}
-          onRow={(record) => ({
-            onClick: () => handleViewDetail(record),
-            style: { cursor: 'pointer' },
-          })}
-        />
+        {viewMode === 'detail' ? (
+          <Table
+            columns={detailColumns}
+            dataSource={filteredMaterials}
+            rowKey="id"
+            pagination={{
+              pageSize: 10,
+              showSizeChanger: true,
+              showTotal: (total) => `共 ${total} 条记录`,
+            }}
+            scroll={{ x: 1300 }}
+            onRow={(record) => ({
+              onClick: () => handleViewDetail(record),
+              style: { cursor: 'pointer' },
+            })}
+          />
+        ) : (
+          <Table
+            columns={batchColumns}
+            dataSource={batchSummaries}
+            rowKey={(record) => `${record.name}__${record.batchNo}`}
+            pagination={{
+              pageSize: 10,
+              showSizeChanger: true,
+              showTotal: (total) => `共 ${total} 个批次`,
+            }}
+            scroll={{ x: 1300 }}
+            onRow={(record) => ({
+              onClick: () => handleViewBatch(record),
+              style: { cursor: 'pointer' },
+            })}
+          />
+        )}
       </div>
 
       {/* 详情抽屉 */}
       <Drawer
-        title="材料详情"
+        title={
+          selectedBatch
+            ? `批次详情 - ${selectedBatch.name}`
+            : selectedMaterial
+            ? `材料详情 - ${selectedMaterial.name}`
+            : '详情'
+        }
         placement="right"
-        width={480}
+        width={520}
         open={drawerVisible}
-        onClose={() => setDrawerVisible(false)}
+        onClose={() => {
+          setDrawerVisible(false);
+          setSelectedMaterial(null);
+          setSelectedBatch(null);
+        }}
         extra={
           <Space>
-            <Button onClick={() => setDrawerVisible(false)}>关闭</Button>
+            <Button
+              onClick={() => {
+                setDrawerVisible(false);
+                setSelectedMaterial(null);
+                setSelectedBatch(null);
+              }}
+            >
+              关闭
+            </Button>
           </Space>
         }
       >
-        {selectedMaterial && (
+        {(selectedMaterial || selectedBatch) && (
           <>
-            {renderDetailContent()}
+            {selectedMaterial ? renderMaterialDetail() : renderBatchDetail()}
             <Divider />
             <div className="space-y-3">
-              <h4 className="text-gray-700 font-medium mb-3">快速处理</h4>
+              <h4 className="text-gray-700 font-medium mb-3">
+                快速处理{selectedBatch && '（批量处理该批次所有位置）'}
+              </h4>
               <div className="grid grid-cols-3 gap-3">
                 <Button
                   type="primary"
@@ -646,8 +1037,12 @@ export default function WarningList() {
           >
             <Input placeholder="请输入经办人姓名" prefix={<User size={16} />} />
           </Form.Item>
-          <Form.Item name="remark" label="备注">
-            <TextArea rows={4} placeholder="请输入备注信息（选填）" maxLength={200} showCount />
+          <Form.Item
+            name="remark"
+            label="备注"
+            rules={[{ required: true, message: '请输入处理备注，方便月底核对' }]}
+          >
+            <TextArea rows={4} placeholder="请详细说明处理情况（必填）" maxLength={200} showCount />
           </Form.Item>
         </Form>
       </Modal>

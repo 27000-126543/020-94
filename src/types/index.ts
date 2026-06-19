@@ -50,3 +50,24 @@ export interface StatusInfo {
   color: string;
   bgColor: string;
 }
+
+export interface BarcodeInfo {
+  barcode: string;
+  name: string;
+  category: MaterialCategory;
+  specification: string;
+  unit: string;
+  defaultLocation: string;
+}
+
+export interface BatchSummary {
+  name: string;
+  category: MaterialCategory;
+  batchNo: string;
+  specification: string;
+  expiryDate: string;
+  locations: { location: string; quantity: number; materialId: string }[];
+  totalQuantity: number;
+  unit: string;
+  recentUsage: UsageRecord[];
+}
