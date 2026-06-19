@@ -1,0 +1,488 @@
+import { useState } from 'react';
+import {
+  Row,
+  Col,
+  Card,
+  Form,
+  Input,
+  InputNumber,
+  Select,
+  DatePicker,
+  Button,
+  Space,
+  List,
+  Tag,
+  Divider,
+  message,
+  Tabs,
+  Empty,
+  Popconfirm,
+} from 'antd';
+import {
+  ScanLine,
+  Plus,
+  Package,
+  User,
+  MapPin,
+  Calendar,
+  FileText,
+  Tag as TagIcon,
+  Sparkles,
+  Link,
+  Syringe,
+  Bone,
+  Layers,
+  Box,
+  Clock,
+  Trash2,
+} from 'lucide-react';
+import { useMaterialStore } from '@/store/useMaterialStore';
+import { MaterialCategory, Material } from '@/types';
+import { CATEGORY_OPTIONS, getCategoryLabel, STATUS_MAP } from '@/utils/status';
+import { formatDate, getRemainingDays } from '@/utils/date';
+import StatusTag from '@/components/StatusTag/StatusTag';
+import dayjs from 'dayjs';
+
+const { Option } = Select;
+const { TextArea } = Input;
+
+interface QuickMaterial {
+  name: string;
+  category: MaterialCategory;
+  specification: string;
+  unit: string;
+  location: string;
+}
+
+const quickMaterials: QuickMaterial[] = [
+  { name: '3M Z250 光固化树脂', category: 'resin', specification: 'A3 色 4g/支', unit: '支', location: '冷藏柜 A-01' },
+  { name: '3M Z350XT 纳米树脂', category: 'resin', specification: 'A2 色 3g/支', unit: '支', location: '冷藏柜 A-02' },
+  { name: '可乐丽 粘接剂', category: 'adhesive', specification: '6ml/瓶', unit: '瓶', location: '冷藏柜 B-02' },
+  { name: '碧蓝麻 复方阿替卡因', category: 'anesthetic', specification: '1.7ml/支', unit: '支', location: '麻药柜 C-01' },
+  { name: '必兰 麻药', category: 'anesthetic', specification: '1.7ml/支', unit: '支', location: '麻药柜 C-03' },
+  { name: '登士柏 AH Plus 根管糊剂', category: 'rootCanal', specification: '粉+液套装', unit: '套', location: '材料柜 D-01' },
+  { name: '3M 加聚型硅橡胶', category: 'impression', specification: '基质+催化剂', unit: '套', location: '材料柜 E-01' },
+  { name: '贺利氏 藻酸盐印模材', category: 'impression', specification: '500g/袋', unit: '袋', location: '材料柜 E-02' },
+];
+
+const categoryIconMap: Record<string, React.ReactNode> = {
+  resin: <Sparkles size={18} />,
+  adhesive: <Link size={18} />,
+  anesthetic: <Syringe size={18} />,
+  rootCanal: <Bone size={18} />,
+  impression: <Layers size={18} />,
+  other: <Box size={18} />,
+};
+
+export default function Inventory() {
+  const { materials, addMaterial, deleteMaterial } = useMaterialStore();
+  const [form] = Form.useForm();
+  const [activeTab, setActiveTab] = useState('form');
+  const [scanInput, setScanInput] = useState('');
+
+  const recentMaterials = [...materials].sort(
+    (a, b) => new Date(b.inDate).getTime() - new Date(a.inDate).getTime()
+  ).slice(0, 10);
+
+  const handleQuickSelect = (material: QuickMaterial) => {
+    form.setFieldsValue({
+      name: material.name,
+      category: material.category,
+      specification: material.specification,
+      unit: material.unit,
+      location: material.location,
+    });
+    setActiveTab('form');
+    message.info(`已选择：${material.name}`);
+  };
+
+  const handleSubmit = async () => {
+    try {
+      const values = await form.validateFields();
+      addMaterial({
+        name: values.name,
+        category: values.category,
+        batchNo: values.batchNo,
+        specification: values.specification,
+        expiryDate: values.expiryDate.format('YYYY-MM-DD'),
+        location: values.location,
+        quantity: values.quantity,
+        unit: values.unit || '支',
+        handler: values.handler,
+        remark: values.remark,
+      });
+      message.success('入库登记成功');
+      form.resetFields();
+    } catch {
+      // validation failed
+    }
+  };
+
+  const handleScanSubmit = () => {
+    if (!scanInput.trim()) {
+      message.warning('请输入或扫描条码');
+      return;
+    }
+    message.info('扫码功能开发中，请使用手动录入');
+    setScanInput('');
+  };
+
+  const handleDelete = (id: string) => {
+    deleteMaterial(id);
+    message.success('已删除入库记录');
+  };
+
+  const tabItems = [
+    {
+      key: 'form',
+      label: '手动录入',
+    },
+    {
+      key: 'scan',
+      label: '扫码录入',
+    },
+    {
+      key: 'quick',
+      label: '常用材料',
+    },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <Row gutter={[24, 24]}>
+        {/* 左侧 - 入库表单 */}
+        <Col xs={24} lg={16}>
+          <Card
+            title={
+              <div className="flex items-center gap-2">
+                <Package size={20} className="text-blue-500" />
+                <span>材料入库登记</span>
+              </div>
+            }
+            className="shadow-sm"
+          >
+            <Tabs
+              activeKey={activeTab}
+              onChange={setActiveTab}
+              items={tabItems}
+              className="mb-4"
+            />
+
+            {activeTab === 'form' && (
+              <Form form={form} layout="vertical" className="mt-4">
+                <Row gutter={16}>
+                  <Col span={16}>
+                    <Form.Item
+                      name="name"
+                      label="材料名称"
+                      rules={[{ required: true, message: '请输入材料名称' }]}
+                    >
+                      <Input placeholder="请输入材料名称" size="large" />
+                    </Form.Item>
+                  </Col>
+                  <Col span={8}>
+                    <Form.Item
+                      name="category"
+                      label="材料分类"
+                      rules={[{ required: true, message: '请选择材料分类' }]}
+                    >
+                      <Select placeholder="请选择分类" size="large">
+                        {CATEGORY_OPTIONS.map((opt) => (
+                          <Option key={opt.value} value={opt.value}>
+                            <span className="flex items-center gap-2">
+                              {categoryIconMap[opt.value]}
+                              {opt.label}
+                            </span>
+                          </Option>
+                        ))}
+                      </Select>
+                    </Form.Item>
+                  </Col>
+                </Row>
+
+                <Row gutter={16}>
+                  <Col span={12}>
+                    <Form.Item
+                      name="batchNo"
+                      label="生产批号"
+                      rules={[{ required: true, message: '请输入生产批号' }]}
+                    >
+                      <Input placeholder="请输入生产批号" prefix={<TagIcon size={16} className="text-gray-400" />} />
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item
+                      name="specification"
+                      label="规格型号"
+                      rules={[{ required: true, message: '请输入规格型号' }]}
+                    >
+                      <Input placeholder="如：A3 色 4g/支" prefix={<FileText size={16} className="text-gray-400" />} />
+                    </Form.Item>
+                  </Col>
+                </Row>
+
+                <Row gutter={16}>
+                  <Col span={12}>
+                    <Form.Item
+                      name="expiryDate"
+                      label="有效期至"
+                      rules={[{ required: true, message: '请选择有效期' }]}
+                    >
+                      <DatePicker
+                        style={{ width: '100%' }}
+                        placeholder="请选择有效期"
+                        size="large"
+                        disabledDate={(current) => current && current < dayjs().startOf('day')}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item
+                      name="location"
+                      label="存放位置"
+                      rules={[{ required: true, message: '请输入存放位置' }]}
+                    >
+                      <Input placeholder="如：冷藏柜 A-01" prefix={<MapPin size={16} className="text-gray-400" />} />
+                    </Form.Item>
+                  </Col>
+                </Row>
+
+                <Row gutter={16}>
+                  <Col span={12}>
+                    <Form.Item
+                      name="quantity"
+                      label="入库数量"
+                      rules={[{ required: true, message: '请输入入库数量' }]}
+                    >
+                      <InputNumber
+                        min={1}
+                        style={{ width: '100%' }}
+                        placeholder="请输入数量"
+                        size="large"
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item name="unit" label="计量单位" initialValue="支">
+                      <Select size="large">
+                        <Option value="支">支</Option>
+                        <Option value="瓶">瓶</Option>
+                        <Option value="袋">袋</Option>
+                        <Option value="套">套</Option>
+                        <Option value="盒">盒</Option>
+                        <Option value="包">包</Option>
+                      </Select>
+                    </Form.Item>
+                  </Col>
+                </Row>
+
+                <Form.Item
+                  name="handler"
+                  label="经办人"
+                  rules={[{ required: true, message: '请输入经办人姓名' }]}
+                >
+                  <Input placeholder="请输入经办人姓名" prefix={<User size={16} className="text-gray-400" />} />
+                </Form.Item>
+
+                <Form.Item name="remark" label="备注">
+                  <TextArea rows={3} placeholder="请输入备注信息（选填）" maxLength={200} showCount />
+                </Form.Item>
+
+                <Divider />
+
+                <Form.Item className="mb-0">
+                  <Space>
+                    <Button
+                      type="primary"
+                      size="large"
+                      icon={<Plus size={18} />}
+                      onClick={handleSubmit}
+                    >
+                      确认入库
+                    </Button>
+                    <Button size="large" onClick={() => form.resetFields()}>
+                      重置
+                    </Button>
+                  </Space>
+                </Form.Item>
+              </Form>
+            )}
+
+            {activeTab === 'scan' && (
+              <div className="py-8 text-center">
+                <div className="w-24 h-24 mx-auto mb-6 rounded-2xl bg-blue-50 flex items-center justify-center">
+                  <ScanLine size={48} className="text-blue-500" />
+                </div>
+                <h3 className="text-lg font-medium text-gray-800 mb-2">扫码入库</h3>
+                <p className="text-gray-500 text-sm mb-6">使用条码枪扫描材料包装条码，快速录入信息</p>
+                <div className="max-w-md mx-auto">
+                  <Input.Search
+                    size="large"
+                    placeholder="请扫描或输入条码"
+                    value={scanInput}
+                    onChange={(e) => setScanInput(e.target.value)}
+                    onSearch={handleScanSubmit}
+                    enterButton="确认"
+                    allowClear
+                  />
+                  <p className="text-xs text-gray-400 mt-3">
+                    提示：扫码功能需配合条码枪使用，也可手动输入条码
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'quick' && (
+              <div className="mt-4">
+                <p className="text-gray-500 text-sm mb-4">点击常用材料快速填充信息</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {quickMaterials.map((material, index) => (
+                    <div
+                      key={index}
+                      className="p-4 rounded-xl border border-gray-200 hover:border-blue-300 hover:bg-blue-50/50 cursor-pointer transition-all group"
+                      onClick={() => handleQuickSelect(material)}
+                    >
+                      <div
+                        className="w-10 h-10 rounded-lg mb-3 flex items-center justify-center text-white"
+                        style={{ backgroundColor: `hsl(${index * 45}, 70%, 55%)` }}
+                      >
+                        {categoryIconMap[material.category]}
+                      </div>
+                      <h4 className="text-sm font-medium text-gray-800 mb-1 line-clamp-2 group-hover:text-blue-600">
+                        {material.name}
+                      </h4>
+                      <p className="text-xs text-gray-400">{material.specification}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Card>
+        </Col>
+
+        {/* 右侧 - 最近入库记录 */}
+        <Col xs={24} lg={8}>
+          <Card
+            title={
+              <div className="flex items-center gap-2">
+                <Clock size={20} className="text-blue-500" />
+                <span>最近入库</span>
+              </div>
+            }
+            className="shadow-sm"
+            extra={<span className="text-sm text-gray-400">最近10条</span>}
+          >
+            {recentMaterials.length > 0 ? (
+              <List
+                dataSource={recentMaterials}
+                renderItem={(item: Material) => {
+                  const remainingDays = getRemainingDays(item.expiryDate);
+                  return (
+                    <List.Item
+                      className="px-0"
+                      actions={[
+                        <Popconfirm
+                          key="delete"
+                          title="确定删除此入库记录？"
+                          onConfirm={() => handleDelete(item.id)}
+                          okText="确定"
+                          cancelText="取消"
+                        >
+                          <Button
+                            type="text"
+                            size="small"
+                            danger
+                            icon={<Trash2 size={14} />}
+                          >
+                            删除
+                          </Button>
+                        </Popconfirm>,
+                      ]}
+                    >
+                      <List.Item.Meta
+                        avatar={
+                          <div
+                            className="w-10 h-10 rounded-lg flex items-center justify-center text-white"
+                            style={{ backgroundColor: STATUS_MAP[item.status].color }}
+                          >
+                            {item.name.charAt(0)}
+                          </div>
+                        }
+                        title={
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium text-gray-800">{item.name}</span>
+                            <StatusTag status={item.status} />
+                          </div>
+                        }
+                        description={
+                          <div className="text-sm text-gray-500 space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="font-mono text-xs">{item.batchNo}</span>
+                              <Tag color="blue">{item.quantity} {item.unit}</Tag>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs">
+                              <MapPin size={12} className="text-gray-400" />
+                              <span>{item.location}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs">
+                              <Calendar size={12} className="text-gray-400" />
+                              <span>{item.inDate} 入库</span>
+                            </div>
+                            {remainingDays > 0 && remainingDays <= 90 && (
+                              <div className="text-xs text-orange-500">
+                                剩余 {remainingDays} 天到期
+                              </div>
+                            )}
+                          </div>
+                        }
+                      />
+                    </List.Item>
+                  );
+                }}
+              />
+            ) : (
+              <Empty description="暂无入库记录" />
+            )}
+          </Card>
+
+          {/* 分类统计 */}
+          <Card
+            title={
+              <div className="flex items-center gap-2 mt-6">
+                <TagIcon size={20} className="text-blue-500" />
+                <span>分类库存</span>
+              </div>
+            }
+            className="shadow-sm"
+          >
+            <div className="space-y-3">
+              {CATEGORY_OPTIONS.map((cat) => {
+                const count = materials.filter((m) => m.category === cat.value).length;
+                const totalQty = materials
+                  .filter((m) => m.category === cat.value)
+                  .reduce((sum, m) => sum + m.quantity, 0);
+                return (
+                  <div key={cat.value} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-8 h-8 rounded-md flex items-center justify-center text-white"
+                        style={{ backgroundColor: `hsl(${CATEGORY_OPTIONS.findIndex(c => c.value === cat.value) * 45}, 70%, 55%)` }}
+                      >
+                        {categoryIconMap[cat.value]}
+                      </div>
+                      <span className="text-gray-700">{cat.label}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-semibold text-gray-800">{count}</span>
+                      <span className="text-gray-400 text-sm ml-1">种 / {totalQty}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        </Col>
+      </Row>
+    </div>
+  );
+}
