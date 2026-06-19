@@ -19,6 +19,8 @@ import {
   Segmented,
   Card,
   Descriptions,
+  InputNumber,
+  Alert,
 } from 'antd';
 import {
   Search,
@@ -38,13 +40,16 @@ import {
   TrendingDown,
   Layers,
   List as ListIcon,
+  ShieldAlert,
+  Settings,
 } from 'lucide-react';
 import StatCard from '@/components/StatCard/StatCard';
 import StatusTag from '@/components/StatusTag/StatusTag';
 import { useMaterialStore } from '@/store/useMaterialStore';
-import { Material, MaterialStatus, ProcessType, MaterialCategory, BatchSummary } from '@/types';
+import { Material, MaterialStatus, ProcessType, MaterialCategory, BatchSummary, LowStockItem } from '@/types';
 import { getRemainingDays, formatDate } from '@/utils/date';
 import { CATEGORY_OPTIONS, STATUS_MAP, PROCESS_TYPE_MAP, FOLLOWUP_STATUS_OPTIONS, getCategoryLabel, getStatusByExpiryDate } from '@/utils/status';
+import dayjs from 'dayjs';
 
 const { Search: SearchInput } = Input;
 const { Option } = Select;
@@ -68,6 +73,8 @@ export default function WarningList() {
     addProcessRecord,
     refreshStatuses,
     getBatchSummaries,
+    setSafeStock,
+    getLowStockItems,
   } = useMaterialStore();
 
   const [filters, setFilters] = useState<FilterState>({
@@ -81,9 +88,13 @@ export default function WarningList() {
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [processModalVisible, setProcessModalVisible] = useState(false);
   const [processType, setProcessType] = useState<ProcessType | null>(null);
+  const [safeStockModalVisible, setSafeStockModalVisible] = useState(false);
+  const [safeStockForm] = Form.useForm();
   const [form] = Form.useForm();
 
   const stats = getStats();
+  const lowStockItems = getLowStockItems();
+
   const filteredMaterials = useMemo(
     () =>
       filterMaterials({
@@ -237,26 +248,100 @@ export default function WarningList() {
     }
   };
 
+  const handleOpenSafeStock = () => {
+    if (selectedMaterial) {
+      safeStockForm.setFieldsValue({
+        safeStock: selectedMaterial.safeStock,
+      });
+    }
+    setSafeStockModalVisible(true);
+  };
+
+  const handleSafeStockSubmit = async () => {
+    try {
+      const values = await safeStockForm.validateFields();
+      if (selectedMaterial) {
+        setSafeStock(selectedMaterial.id, values.safeStock || 0);
+        message.success('安全库存已设置');
+        setSafeStockModalVisible(false);
+        setSelectedMaterial((prev) =>
+          prev ? { ...prev, safeStock: values.safeStock || 0 } : null
+        );
+      }
+    } catch {
+      // validation failed
+    }
+  };
+
+  const renderLowStockAlert = () => {
+    if (lowStockItems.length === 0) return null;
+    return (
+      <Alert
+        message={
+          <div className="flex items-center gap-2">
+            <ShieldAlert size={18} className="text-orange-500" />
+            <span className="font-medium">
+              低库存提醒：共 {lowStockItems.length} 项材料库存低于安全库存
+            </span>
+          </div>
+        }
+        description={
+          <div className="mt-2">
+            {lowStockItems.slice(0, 3).map((item) => (
+              <div key={item.id} className="text-sm flex items-center gap-2">
+                <span className="font-medium">{item.name}</span>
+                <span className="text-gray-500">
+                  ({item.location} / 批号{item.batchNo})
+                </span>
+                <Tag color="red">
+                  缺 {item.shortfall} {item.unit}
+                </Tag>
+              </div>
+            ))}
+            {lowStockItems.length > 3 && (
+              <div className="text-sm text-orange-600 mt-1">
+                ...还有 {lowStockItems.length - 3} 项，请在下方「低库存列表」中查看
+              </div>
+            )}
+          </div>
+        }
+        type="warning"
+        showIcon={false}
+        closable
+      />
+    );
+  };
+
   const detailColumns = [
     {
       title: '材料名称',
       dataIndex: 'name',
       key: 'name',
       width: 240,
-      render: (text: string, record: Material) => (
-        <div className="flex items-center gap-3">
-          <div
-            className="w-10 h-10 rounded-lg flex items-center justify-center text-white text-sm font-medium"
-            style={{ backgroundColor: STATUS_MAP[record.status].color }}
-          >
-            {text.charAt(0)}
+      render: (text: string, record: Material) => {
+        const isLow = record.safeStock !== undefined && record.quantity < record.safeStock;
+        return (
+          <div className="flex items-center gap-3">
+            <div
+              className="w-10 h-10 rounded-lg flex items-center justify-center text-white text-sm font-medium"
+              style={{ backgroundColor: STATUS_MAP[record.status].color }}
+            >
+              {text.charAt(0)}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-gray-800">{text}</span>
+                {isLow && (
+                  <Tag color="red" icon={<ShieldAlert size={12} />}>
+                    低库存
+                  </Tag>
+                )}
+              </div>
+              <div className="text-xs text-gray-400">{getCategoryLabel(record.category)}</div>
+            </div>
           </div>
-          <div>
-            <div className="font-medium text-gray-800">{text}</div>
-            <div className="text-xs text-gray-400">{getCategoryLabel(record.category)}</div>
-          </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       title: '批号',
@@ -311,12 +396,23 @@ export default function WarningList() {
       title: '库存数量',
       dataIndex: 'quantity',
       key: 'quantity',
-      width: 120,
-      render: (qty: number, record: Material) => (
-        <span className="text-gray-700">
-          <span className="font-semibold">{qty}</span> {record.unit}
-        </span>
-      ),
+      width: 140,
+      render: (qty: number, record: Material) => {
+        const isLow = record.safeStock !== undefined && record.quantity < record.safeStock;
+        return (
+          <div>
+            <span className="text-gray-700">
+              <span className="font-semibold">{qty}</span> {record.unit}
+            </span>
+            {record.safeStock !== undefined && (
+              <div className={`text-xs mt-1 ${isLow ? 'text-red-500' : 'text-gray-400'}`}>
+                安全库存: {record.safeStock} {record.unit}
+                {isLow && ` (缺 ${record.safeStock - qty})`}
+              </div>
+            )}
+          </div>
+        );
+      },
     },
     {
       title: '存放位置',
@@ -363,6 +459,10 @@ export default function WarningList() {
       width: 240,
       render: (text: string, record: BatchSummary) => {
         const status = getStatusByExpiryDate(record.expiryDate);
+        const hasLowStock = record.locations.some((loc) => {
+          const mat = materials.find((m) => m.id === loc.materialId);
+          return mat && mat.safeStock !== undefined && mat.quantity < mat.safeStock;
+        });
         return (
           <div className="flex items-center gap-3">
             <div
@@ -372,7 +472,14 @@ export default function WarningList() {
               {text.charAt(0)}
             </div>
             <div>
-              <div className="font-medium text-gray-800">{text}</div>
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-gray-800">{text}</span>
+                {hasLowStock && (
+                  <Tag color="red" icon={<ShieldAlert size={12} />}>
+                    有低库存
+                  </Tag>
+                )}
+              </div>
               <div className="text-xs text-gray-400">{getCategoryLabel(record.category)}</div>
             </div>
           </div>
@@ -433,12 +540,25 @@ export default function WarningList() {
       title: '总库存',
       dataIndex: 'totalQuantity',
       key: 'totalQuantity',
-      width: 120,
-      render: (qty: number, record: BatchSummary) => (
-        <span className="text-gray-700">
-          <span className="font-semibold text-lg">{qty}</span> {record.unit}
-        </span>
-      ),
+      width: 140,
+      render: (qty: number, record: BatchSummary) => {
+        const lowItems = record.locations.filter((loc) => {
+          const mat = materials.find((m) => m.id === loc.materialId);
+          return mat && mat.safeStock !== undefined && mat.quantity < mat.safeStock;
+        });
+        return (
+          <div>
+            <span className="text-gray-700">
+              <span className="font-semibold text-lg">{qty}</span> {record.unit}
+            </span>
+            {lowItems.length > 0 && (
+              <div className="text-xs text-red-500 mt-1">
+                {lowItems.length} 个位置库存不足
+              </div>
+            )}
+          </div>
+        );
+      },
     },
     {
       title: '存放位置',
@@ -483,12 +603,102 @@ export default function WarningList() {
     },
   ];
 
+  const lowStockColumns = [
+    {
+      title: '材料名称',
+      dataIndex: 'name',
+      key: 'name',
+      width: 220,
+      render: (text: string, record: LowStockItem) => (
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-gray-800">{text}</span>
+          <Tag color="blue">{getCategoryLabel(record.category)}</Tag>
+        </div>
+      ),
+    },
+    {
+      title: '批号',
+      dataIndex: 'batchNo',
+      key: 'batchNo',
+      width: 120,
+      render: (text: string) => <span className="font-mono text-sm">{text}</span>,
+    },
+    {
+      title: '存放位置',
+      dataIndex: 'location',
+      key: 'location',
+      width: 140,
+      render: (text: string) => (
+        <span className="flex items-center gap-1">
+          <MapPin size={12} className="text-gray-400" />
+          {text}
+        </span>
+      ),
+    },
+    {
+      title: '当前库存',
+      dataIndex: 'quantity',
+      key: 'quantity',
+      width: 100,
+      render: (qty: number, record: LowStockItem) => (
+        <span className="text-red-600 font-semibold">
+          {qty} {record.unit}
+        </span>
+      ),
+    },
+    {
+      title: '安全库存',
+      dataIndex: 'safeStock',
+      key: 'safeStock',
+      width: 100,
+      render: (qty: number, record: LowStockItem) => (
+        <span className="text-gray-600">{qty} {record.unit}</span>
+      ),
+    },
+    {
+      title: '缺多少',
+      dataIndex: 'shortfall',
+      key: 'shortfall',
+      width: 100,
+      render: (qty: number, record: LowStockItem) => (
+        <span className="text-red-600 font-semibold">
+          -{qty} {record.unit}
+        </span>
+      ),
+    },
+    {
+      title: '效期状态',
+      dataIndex: 'status',
+      key: 'status',
+      width: 110,
+      render: (status: MaterialStatus) => <StatusTag status={status} />,
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 100,
+      render: (_: unknown, record: LowStockItem) => {
+        const mat = materials.find((m) => m.id === record.id);
+        return (
+          <Button
+            type="link"
+            size="small"
+            onClick={() => mat && handleViewDetail(mat)}
+          >
+            查看
+          </Button>
+        );
+      },
+    },
+  ];
+
   const renderMaterialDetail = () => {
     if (!selectedMaterial) return null;
 
     const usageRecords = getUsageRecordsByMaterialId(selectedMaterial.id);
     const processRecords = getProcessRecordsByMaterialId(selectedMaterial.id);
     const remainingDays = getRemainingDays(selectedMaterial.expiryDate);
+    const isLow = selectedMaterial.safeStock !== undefined && selectedMaterial.quantity < selectedMaterial.safeStock;
 
     const tabItems = [
       {
@@ -496,6 +706,14 @@ export default function WarningList() {
         label: '基本信息',
         children: (
           <div className="space-y-6">
+            {isLow && (
+              <Alert
+                message="库存低于安全库存"
+                description={`当前库存 ${selectedMaterial.quantity} ${selectedMaterial.unit}，安全库存 ${selectedMaterial.safeStock} ${selectedMaterial.unit}，缺口 ${(selectedMaterial.safeStock! - selectedMaterial.quantity)} ${selectedMaterial.unit}`}
+                type="warning"
+                showIcon
+              />
+            )}
             <div className="p-4 rounded-lg bg-gray-50">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
@@ -514,7 +732,17 @@ export default function WarningList() {
                     </p>
                   </div>
                 </div>
-                <StatusTag status={selectedMaterial.status} showPulse />
+                <div className="flex items-center gap-2">
+                  <StatusTag status={selectedMaterial.status} showPulse />
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<Settings size={14} />}
+                    onClick={handleOpenSafeStock}
+                  >
+                    设置安全库存
+                  </Button>
+                </div>
               </div>
             </div>
 
@@ -526,12 +754,25 @@ export default function WarningList() {
                   <span className="text-sm font-normal ml-1">天</span>
                 </p>
               </div>
-              <div className="p-3 rounded-lg bg-green-50">
-                <p className="text-xs text-green-500 mb-1">库存数量</p>
-                <p className="text-2xl font-bold text-green-600 m-0">
+              <div className={`p-3 rounded-lg ${isLow ? 'bg-red-50' : 'bg-green-50'}`}>
+                <p className={`text-xs ${isLow ? 'text-red-500' : 'text-green-500'} mb-1`}>
+                  库存数量
+                  {selectedMaterial.safeStock !== undefined && ` / 安全库存`}
+                </p>
+                <p className={`text-2xl font-bold ${isLow ? 'text-red-600' : 'text-green-600'} m-0`}>
                   {selectedMaterial.quantity}
                   <span className="text-sm font-normal ml-1">{selectedMaterial.unit}</span>
+                  {selectedMaterial.safeStock !== undefined && (
+                    <span className="text-sm font-normal ml-2 text-gray-500">
+                      / {selectedMaterial.safeStock}
+                    </span>
+                  )}
                 </p>
+                {isLow && (
+                  <p className="text-xs text-red-500 mt-1">
+                    缺 {selectedMaterial.safeStock! - selectedMaterial.quantity} {selectedMaterial.unit}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -575,6 +816,7 @@ export default function WarningList() {
                     description={
                       <div className="text-sm text-gray-500">
                         <p>{item.department} · {formatDate(item.date)}</p>
+                        {item.purpose && <p className="mt-1">用途：{item.purpose}</p>}
                         {item.remark && <p className="mt-1">{item.remark}</p>}
                       </div>
                     }
@@ -721,6 +963,7 @@ export default function WarningList() {
             {selectedBatch.locations.map((loc, idx) => {
               const mat = materials.find((m) => m.id === loc.materialId);
               const matStatus = mat ? STATUS_MAP[mat.status] : STATUS_MAP.normal;
+              const isLow = mat && mat.safeStock !== undefined && mat.quantity < mat.safeStock;
               return (
                 <Card key={idx} size="small" className="shadow-sm">
                   <div className="flex items-center justify-between">
@@ -732,14 +975,26 @@ export default function WarningList() {
                         <MapPin size={18} style={{ color: matStatus.color }} />
                       </div>
                       <div>
-                        <p className="font-medium text-gray-800 m-0">{loc.location}</p>
+                        <p className="font-medium text-gray-800 m-0">
+                          {loc.location}
+                          {isLow && (
+                            <Tag color="red" className="ml-2">
+                              低库存
+                            </Tag>
+                          )}
+                        </p>
                         <p className="text-sm text-gray-500 m-0">
                           批号：<span className="font-mono text-xs">{selectedBatch.batchNo}</span>
                         </p>
+                        {isLow && mat && (
+                          <p className="text-xs text-red-500 mt-1">
+                            当前 {mat.quantity} / 安全 {mat.safeStock}，缺 {mat.safeStock! - mat.quantity} {mat.unit}
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="text-xl font-bold m-0" style={{ color: matStatus.color }}>
+                      <p className="text-xl font-bold m-0" style={{ color: isLow ? '#ff4d4f' : matStatus.color }}>
                         {loc.quantity} <span className="text-sm font-normal text-gray-500">{selectedBatch.unit}</span>
                       </p>
                       {mat && <StatusTag status={mat.status} />}
@@ -775,6 +1030,7 @@ export default function WarningList() {
                     description={
                       <div className="text-sm text-gray-500">
                         <p>{item.department} · {formatDate(item.date)}</p>
+                        {item.purpose && <p className="mt-1">用途：{item.purpose}</p>}
                         {item.remark && <p className="mt-1">{item.remark}</p>}
                       </div>
                     }
@@ -846,120 +1102,201 @@ export default function WarningList() {
     return <Tabs items={tabItems} />;
   };
 
+  const mainTabItems = [
+    {
+      key: 'warning',
+      label: (
+        <span className="flex items-center gap-1">
+          <AlertTriangle size={16} />
+          效期预警
+        </span>
+      ),
+      children: (
+        <div className="space-y-6">
+          {/* 统计卡片 */}
+          <Row gutter={[16, 16]}>
+            {statCards.map((card) => (
+              <Col xs={12} sm={12} md={8} lg={8} xl={4} key={card.key}>
+                <StatCard
+                  title={card.title}
+                  value={card.value}
+                  icon={card.icon}
+                  color={card.color}
+                  bgColor={card.bgColor}
+                  active={filters.status === card.key}
+                  onClick={() => handleStatClick(card.key)}
+                />
+              </Col>
+            ))}
+          </Row>
+
+          {/* 筛选栏 */}
+          <div className="flex flex-wrap items-center gap-4 p-4 bg-gray-50 rounded-lg">
+            <div className="flex items-center gap-2">
+              <span className="text-gray-600 text-sm">视图：</span>
+              <Segmented
+                value={viewMode}
+                onChange={(value) => setViewMode(value as ViewMode)}
+                options={[
+                  { label: <span className="flex items-center gap-1"><ListIcon size={14} />明细视图</span>, value: 'detail' },
+                  { label: <span className="flex items-center gap-1"><Layers size={14} />批次视图</span>, value: 'batch' },
+                ]}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-gray-600 text-sm">状态筛选：</span>
+              <Select
+                value={filters.status}
+                onChange={(value) => setFilters((prev) => ({ ...prev, status: value }))}
+                style={{ width: 140 }}
+                size="middle"
+              >
+                <Option value="all">全部状态</Option>
+                <Option value="normal">正常</Option>
+                <Option value="warning90">90天预警</Option>
+                <Option value="warning30">30天临期</Option>
+                <Option value="warning7">7天紧急</Option>
+                <Option value="expired">已过期</Option>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-gray-600 text-sm">材料分类：</span>
+              <Select
+                value={filters.category || undefined}
+                onChange={(value) => setFilters((prev) => ({ ...prev, category: value || '' }))}
+                style={{ width: 140 }}
+                size="middle"
+                allowClear
+                placeholder="全部分类"
+              >
+                {CATEGORY_OPTIONS.map((opt) => (
+                  <Option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </Option>
+                ))}
+              </Select>
+            </div>
+            <div className="flex-1 min-w-[200px]">
+              <SearchInput
+                placeholder={viewMode === 'batch' ? '搜索材料名称、批号' : '搜索材料名称、批号、规格'}
+                allowClear
+                size="middle"
+                value={filters.keyword}
+                onChange={(e) => setFilters((prev) => ({ ...prev, keyword: e.target.value }))}
+                style={{ maxWidth: 360 }}
+                prefix={<Search size={16} className="text-gray-400" />}
+              />
+            </div>
+          </div>
+
+          {/* 材料列表 */}
+          <div className="bg-white rounded-lg">
+            {viewMode === 'detail' ? (
+              <Table
+                columns={detailColumns}
+                dataSource={filteredMaterials}
+                rowKey="id"
+                pagination={{
+                  pageSize: 10,
+                  showSizeChanger: true,
+                  showTotal: (total) => `共 ${total} 条记录`,
+                }}
+                scroll={{ x: 1400 }}
+                onRow={(record) => ({
+                  onClick: () => handleViewDetail(record),
+                  style: { cursor: 'pointer' },
+                })}
+              />
+            ) : (
+              <Table
+                columns={batchColumns}
+                dataSource={batchSummaries}
+                rowKey={(record) => `${record.name}__${record.batchNo}`}
+                pagination={{
+                  pageSize: 10,
+                  showSizeChanger: true,
+                  showTotal: (total) => `共 ${total} 个批次`,
+                }}
+                scroll={{ x: 1400 }}
+                onRow={(record) => ({
+                  onClick: () => handleViewBatch(record),
+                  style: { cursor: 'pointer' },
+                })}
+              />
+            )}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'lowStock',
+      label: (
+        <span className="flex items-center gap-1">
+          <ShieldAlert size={16} className="text-orange-500" />
+          低库存列表
+          {lowStockItems.length > 0 && (
+            <Tag color="red" style={{ marginLeft: 4 }}>
+              {lowStockItems.length}
+            </Tag>
+          )}
+        </span>
+      ),
+      children: (
+        <div className="mt-4">
+          {lowStockItems.length > 0 ? (
+            <Table
+              columns={lowStockColumns}
+              dataSource={lowStockItems}
+              rowKey="id"
+              pagination={{
+                pageSize: 10,
+                showSizeChanger: true,
+                showTotal: (total) => `共 ${total} 项低库存材料`,
+              }}
+              scroll={{ x: 1100 }}
+            />
+          ) : (
+            <Empty
+              description={
+                <div className="py-8">
+                  <CheckCircle size={48} className="text-green-500 mx-auto mb-3" />
+                  <p className="text-gray-600 font-medium">当前所有材料库存均充足</p>
+                  <p className="text-gray-400 text-sm mt-1">可在材料详情中设置安全库存启用低库存提醒</p>
+                </div>
+              }
+            />
+          )}
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
-      {/* 统计卡片 */}
-      <Row gutter={[16, 16]}>
-        {statCards.map((card) => (
-          <Col xs={12} sm={12} md={8} lg={8} xl={4} key={card.key}>
-            <StatCard
-              title={card.title}
-              value={card.value}
-              icon={card.icon}
-              color={card.color}
-              bgColor={card.bgColor}
-              active={filters.status === card.key}
-              onClick={() => handleStatClick(card.key)}
-            />
-          </Col>
-        ))}
-      </Row>
+      {renderLowStockAlert()}
 
-      {/* 筛选栏 */}
-      <div className="flex flex-wrap items-center gap-4 p-4 bg-gray-50 rounded-lg">
-        <div className="flex items-center gap-2">
-          <span className="text-gray-600 text-sm">视图：</span>
-          <Segmented
-            value={viewMode}
-            onChange={(value) => setViewMode(value as ViewMode)}
-            options={[
-              { label: <span className="flex items-center gap-1"><ListIcon size={14} />明细视图</span>, value: 'detail' },
-              { label: <span className="flex items-center gap-1"><Layers size={14} />批次视图</span>, value: 'batch' },
-            ]}
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-gray-600 text-sm">状态筛选：</span>
-          <Select
-            value={filters.status}
-            onChange={(value) => setFilters((prev) => ({ ...prev, status: value }))}
-            style={{ width: 140 }}
-            size="middle"
-          >
-            <Option value="all">全部状态</Option>
-            <Option value="normal">正常</Option>
-            <Option value="warning90">90天预警</Option>
-            <Option value="warning30">30天临期</Option>
-            <Option value="warning7">7天紧急</Option>
-            <Option value="expired">已过期</Option>
-          </Select>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-gray-600 text-sm">材料分类：</span>
-          <Select
-            value={filters.category || undefined}
-            onChange={(value) => setFilters((prev) => ({ ...prev, category: value || '' }))}
-            style={{ width: 140 }}
-            size="middle"
-            allowClear
-            placeholder="全部分类"
-          >
-            {CATEGORY_OPTIONS.map((opt) => (
-              <Option key={opt.value} value={opt.value}>
-                {opt.label}
-              </Option>
-            ))}
-          </Select>
-        </div>
-        <div className="flex-1 min-w-[200px]">
-          <SearchInput
-            placeholder={viewMode === 'batch' ? '搜索材料名称、批号' : '搜索材料名称、批号、规格'}
-            allowClear
-            size="middle"
-            value={filters.keyword}
-            onChange={(e) => setFilters((prev) => ({ ...prev, keyword: e.target.value }))}
-            style={{ maxWidth: 360 }}
-            prefix={<Search size={16} className="text-gray-400" />}
-          />
-        </div>
-      </div>
-
-      {/* 材料列表 */}
-      <div className="bg-white rounded-lg">
-        {viewMode === 'detail' ? (
-          <Table
-            columns={detailColumns}
-            dataSource={filteredMaterials}
-            rowKey="id"
-            pagination={{
-              pageSize: 10,
-              showSizeChanger: true,
-              showTotal: (total) => `共 ${total} 条记录`,
+      <Card
+        title={
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={20} className="text-blue-500" />
+            <span>效期预警 & 库存提醒</span>
+          </div>
+        }
+        className="shadow-sm"
+        extra={
+          <Button
+            icon={<RefreshCw size={14} />}
+            onClick={() => {
+              refreshStatuses();
+              message.success('状态已刷新');
             }}
-            scroll={{ x: 1300 }}
-            onRow={(record) => ({
-              onClick: () => handleViewDetail(record),
-              style: { cursor: 'pointer' },
-            })}
-          />
-        ) : (
-          <Table
-            columns={batchColumns}
-            dataSource={batchSummaries}
-            rowKey={(record) => `${record.name}__${record.batchNo}`}
-            pagination={{
-              pageSize: 10,
-              showSizeChanger: true,
-              showTotal: (total) => `共 ${total} 个批次`,
-            }}
-            scroll={{ x: 1300 }}
-            onRow={(record) => ({
-              onClick: () => handleViewBatch(record),
-              style: { cursor: 'pointer' },
-            })}
-          />
-        )}
-      </div>
+          >
+            刷新状态
+          </Button>
+        }
+      >
+        <Tabs items={mainTabItems} defaultActiveKey="warning" />
+      </Card>
 
       {/* 详情抽屉 */}
       <Drawer
@@ -971,7 +1308,7 @@ export default function WarningList() {
             : '详情'
         }
         placement="right"
-        width={520}
+        width={560}
         open={drawerVisible}
         onClose={() => {
           setDrawerVisible(false);
@@ -1080,6 +1417,33 @@ export default function WarningList() {
             ]}
           >
             <TextArea rows={4} placeholder="请详细说明处理情况（必填）" maxLength={200} showCount />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 安全库存设置弹窗 */}
+      <Modal
+        title="设置安全库存"
+        open={safeStockModalVisible}
+        onOk={handleSafeStockSubmit}
+        onCancel={() => setSafeStockModalVisible(false)}
+        okText="保存"
+        cancelText="取消"
+        width={400}
+      >
+        <Form form={safeStockForm} layout="vertical" className="mt-4">
+          <Form.Item
+            name="safeStock"
+            label="安全库存数量"
+            rules={[{ required: true, message: '请输入安全库存数量' }]}
+            extra={`当前库存：${selectedMaterial?.quantity} ${selectedMaterial?.unit}，设置低于此值时将触发低库存提醒`}
+          >
+            <InputNumber
+              min={0}
+              style={{ width: '100%' }}
+              placeholder={`请输入安全库存数量（单位：${selectedMaterial?.unit}）`}
+              size="large"
+            />
           </Form.Item>
         </Form>
       </Modal>

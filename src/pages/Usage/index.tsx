@@ -16,6 +16,9 @@ import {
   Empty,
   Divider,
   Descriptions,
+  Table,
+  Alert,
+  Statistic,
 } from 'antd';
 import {
   ArrowRightLeft,
@@ -28,6 +31,8 @@ import {
   Building2,
   FileText,
   Clock,
+  BarChart3,
+  Filter,
 } from 'lucide-react';
 import { useMaterialStore } from '@/store/useMaterialStore';
 import { Material } from '@/types';
@@ -53,6 +58,9 @@ export default function UsagePage() {
     getAllDepartments,
     getAllUsers,
     getUsageRecordsByMaterialId,
+    getUsageSummaryByDepartment,
+    getUsageSummaryByUser,
+    getUsageRecordsByMonth,
   } = useMaterialStore();
 
   const [form] = Form.useForm();
@@ -60,6 +68,9 @@ export default function UsagePage() {
   const [selectedLocation, setSelectedLocation] = useState<string>('');
   const [recentUsages, setRecentUsages] = useState<typeof usageRecords>([]);
   const [activeTab, setActiveTab] = useState<string>('register');
+  const [selectedMonth, setSelectedMonth] = useState<string>(dayjs().format('YYYY-MM'));
+  const [filterDepartment, setFilterDepartment] = useState<string | undefined>(undefined);
+  const [filterUser, setFilterUser] = useState<string | undefined>(undefined);
 
   const locations = getAllLocations();
 
@@ -163,6 +174,35 @@ export default function UsagePage() {
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .slice(0, 20);
   }, [usageRecords]);
+
+  const monthOptions = useMemo(() => {
+    const months = new Set<string>();
+    months.add(dayjs().format('YYYY-MM'));
+    usageRecords.forEach((r) => {
+      const m = r.date.substring(0, 7);
+      months.add(m);
+    });
+    return [...months].sort().reverse();
+  }, [usageRecords]);
+
+  const departments = getAllDepartments();
+  const users = getAllUsers();
+
+  const departmentSummary = useMemo(() => {
+    return getUsageSummaryByDepartment(selectedMonth, filterDepartment);
+  }, [selectedMonth, filterDepartment, getUsageSummaryByDepartment]);
+
+  const userSummary = useMemo(() => {
+    return getUsageSummaryByUser(selectedMonth, filterUser);
+  }, [selectedMonth, filterUser, getUsageSummaryByUser]);
+
+  const monthUsageRecords = useMemo(() => {
+    return getUsageRecordsByMonth(selectedMonth, filterDepartment);
+  }, [selectedMonth, filterDepartment, getUsageRecordsByMonth]);
+
+  const totalUsageQty = useMemo(() => {
+    return monthUsageRecords.reduce((sum, r) => sum + r.quantity, 0);
+  }, [monthUsageRecords]);
 
   return (
     <div className="space-y-6">
@@ -445,6 +485,174 @@ export default function UsagePage() {
                       ) : (
                         <Empty description="暂无领用记录" />
                       )}
+                    </div>
+                  ),
+                },
+                {
+                  key: 'statistics',
+                  label: (
+                    <span className="flex items-center gap-1">
+                      <BarChart3 size={16} />
+                      月度统计
+                    </span>
+                  ),
+                  children: (
+                    <div className="mt-4 space-y-6">
+                      <Card size="small" className="shadow-sm">
+                        <div className="flex items-center gap-2 mb-4">
+                          <Filter size={16} className="text-gray-500" />
+                          <span className="font-medium text-gray-700">筛选条件</span>
+                        </div>
+                        <Row gutter={[16, 16]}>
+                          <Col xs={24} sm={8}>
+                            <div className="text-sm text-gray-500 mb-1">月份</div>
+                            <Select
+                              style={{ width: '100%' }}
+                              value={selectedMonth}
+                              onChange={setSelectedMonth}
+                              options={monthOptions.map((m) => ({ value: m, label: m }))}
+                            />
+                          </Col>
+                          <Col xs={24} sm={8}>
+                            <div className="text-sm text-gray-500 mb-1">科室</div>
+                            <Select
+                              style={{ width: '100%' }}
+                              placeholder="全部科室"
+                              allowClear
+                              value={filterDepartment}
+                              onChange={(val) => {
+                                setFilterDepartment(val);
+                                setFilterUser(undefined);
+                              }}
+                              options={departments.map((d) => ({ value: d, label: d }))}
+                            />
+                          </Col>
+                          <Col xs={24} sm={8}>
+                            <div className="text-sm text-gray-500 mb-1">领用人</div>
+                            <Select
+                              style={{ width: '100%' }}
+                              placeholder="全部医生"
+                              allowClear
+                              value={filterUser}
+                              onChange={setFilterUser}
+                              options={users.map((u) => ({ value: u, label: u }))}
+                            />
+                          </Col>
+                        </Row>
+                      </Card>
+
+                      <Alert
+                        type="info"
+                        showIcon
+                        message={
+                          <div className="flex items-center gap-6">
+                            <Statistic title="领用记录数" value={monthUsageRecords.length} valueStyle={{ fontSize: 18 }} />
+                            <Statistic title="领用总数量" value={totalUsageQty} valueStyle={{ fontSize: 18 }} suffix="件" />
+                            <Statistic title="涉及科室" value={departmentSummary.length} valueStyle={{ fontSize: 18 }} suffix="个" />
+                            <Statistic title="领用人数" value={userSummary.length} valueStyle={{ fontSize: 18 }} suffix="人" />
+                          </div>
+                        }
+                      />
+
+                      <Card
+                        size="small"
+                        title={
+                          <div className="flex items-center gap-2">
+                            <Building2 size={16} className="text-blue-500" />
+                            <span>按科室统计</span>
+                          </div>
+                        }
+                        className="shadow-sm"
+                      >
+                        {departmentSummary.length > 0 ? (
+                          <Table
+                            size="small"
+                            dataSource={departmentSummary}
+                            rowKey="department"
+                            pagination={{ pageSize: 5 }}
+                            columns={[
+                              { title: '科室', dataIndex: 'department', key: 'department', width: 140 },
+                              { title: '领用记录数', dataIndex: 'recordCount', key: 'recordCount', width: 100, align: 'center' },
+                              { title: '领用人数', dataIndex: 'userCount', key: 'userCount', width: 100, align: 'center' },
+                              { title: '领用总数量', dataIndex: 'totalQuantity', key: 'totalQuantity', width: 120, align: 'right',
+                                render: (val: number) => <span className="font-semibold text-blue-600">{val}</span>
+                              },
+                              { title: '领用材料种类', dataIndex: 'materialCount', key: 'materialCount', width: 120, align: 'center' },
+                            ]}
+                          />
+                        ) : (
+                          <Empty description="该月无领用记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                        )}
+                      </Card>
+
+                      <Card
+                        size="small"
+                        title={
+                          <div className="flex items-center gap-2">
+                            <Stethoscope size={16} className="text-blue-500" />
+                            <span>按医生统计</span>
+                          </div>
+                        }
+                        className="shadow-sm"
+                      >
+                        {userSummary.length > 0 ? (
+                          <Table
+                            size="small"
+                            dataSource={userSummary}
+                            rowKey="user"
+                            pagination={{ pageSize: 5 }}
+                            columns={[
+                              { title: '医生', dataIndex: 'user', key: 'user', width: 120 },
+                              { title: '所属科室', dataIndex: 'department', key: 'department', width: 140 },
+                              { title: '领用记录数', dataIndex: 'recordCount', key: 'recordCount', width: 100, align: 'center' },
+                              { title: '领用总数量', dataIndex: 'totalQuantity', key: 'totalQuantity', width: 120, align: 'right',
+                                render: (val: number) => <span className="font-semibold text-blue-600">{val}</span>
+                              },
+                              { title: '领用材料种类', dataIndex: 'materialCount', key: 'materialCount', width: 120, align: 'center' },
+                            ]}
+                          />
+                        ) : (
+                          <Empty description="该月无领用记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                        )}
+                      </Card>
+
+                      <Card
+                        size="small"
+                        title={
+                          <div className="flex items-center gap-2">
+                            <ClipboardList size={16} className="text-blue-500" />
+                            <span>领用明细</span>
+                            <Tag color="blue" className="ml-2">{monthUsageRecords.length} 条</Tag>
+                          </div>
+                        }
+                        className="shadow-sm"
+                      >
+                        {monthUsageRecords.length > 0 ? (
+                          <Table
+                            size="small"
+                            dataSource={monthUsageRecords}
+                            rowKey="id"
+                            pagination={{ pageSize: 10 }}
+                            columns={[
+                              { title: '日期', dataIndex: 'date', key: 'date', width: 110 },
+                              { title: '材料名称', dataIndex: 'materialName', key: 'materialName', width: 200 },
+                              { title: '批号', dataIndex: 'batchNo', key: 'batchNo', width: 120 },
+                              { title: '规格', dataIndex: 'specification', key: 'specification', width: 140 },
+                              { title: '数量', dataIndex: 'quantity', key: 'quantity', width: 80, align: 'right',
+                                render: (val: number) => <span className="font-semibold text-orange-600">-{val}</span>
+                              },
+                              { title: '单位', dataIndex: 'unit', key: 'unit', width: 60, align: 'center' },
+                              { title: '科室', dataIndex: 'department', key: 'department', width: 120 },
+                              { title: '领用人', dataIndex: 'user', key: 'user', width: 100 },
+                              { title: '用途', dataIndex: 'purpose', key: 'purpose', width: 140,
+                                render: (val: string) => val || <span className="text-gray-400">-</span>
+                              },
+                            ]}
+                          />
+                        ) : (
+                          <Empty description="该月无领用记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                        )}
+                      </Card>
                     </div>
                   ),
                 },

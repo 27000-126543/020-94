@@ -16,6 +16,9 @@ import {
   message,
   Tabs,
   Empty,
+  DatePicker,
+  Radio,
+  Alert,
 } from 'antd';
 import {
   ClipboardCheck,
@@ -32,10 +35,14 @@ import {
   CheckCircle2,
   History,
   RefreshCw,
+  BarChart3,
+  Grid3X3,
+  Layers,
+  Download,
 } from 'lucide-react';
 import { useMaterialStore } from '@/store/useMaterialStore';
-import { StocktakeRecord, StocktakeStatus } from '@/types';
-import { getCategoryLabel } from '@/utils/status';
+import { StocktakeRecord, StocktakeStatus, StocktakeSummaryByLocation, StocktakeSummaryByCategory } from '@/types';
+import { getCategoryLabel, CATEGORY_OPTIONS } from '@/utils/status';
 import dayjs from 'dayjs';
 
 const { Option } = Select;
@@ -53,6 +60,8 @@ interface StocktakeItem {
   reason?: string;
 }
 
+type ViewMode = 'location' | 'category';
+
 export default function StocktakePage() {
   const {
     materials,
@@ -60,6 +69,9 @@ export default function StocktakePage() {
     stocktakeRecords,
     addStocktakeRecord,
     generateStocktakeByLocation,
+    getStocktakeSummaryByLocation,
+    getStocktakeSummaryByCategory,
+    exportStocktakeRecords,
   } = useMaterialStore();
 
   const [selectedLocation, setSelectedLocation] = useState<string>('');
@@ -68,8 +80,19 @@ export default function StocktakePage() {
   const [isStarted, setIsStarted] = useState(false);
   const [submitModalVisible, setSubmitModalVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<string>('new');
+  const [selectedMonth, setSelectedMonth] = useState<string>(dayjs().format('YYYY-MM'));
+  const [summaryViewMode, setSummaryViewMode] = useState<ViewMode>('location');
 
   const locations = getAllLocations();
+
+  const monthOptions = useMemo(() => {
+    const months = new Set<string>();
+    months.add(dayjs().format('YYYY-MM'));
+    stocktakeRecords.forEach((r) => {
+      months.add(r.date.substring(0, 7));
+    });
+    return Array.from(months).sort().reverse();
+  }, [stocktakeRecords]);
 
   const handleGenerate = () => {
     if (!selectedLocation) {
@@ -122,6 +145,22 @@ export default function StocktakePage() {
     return { total, completed, surplus, deficit, matched };
   }, [stocktakeItems]);
 
+  const historyRecords = useMemo(() => {
+    let records = [...stocktakeRecords];
+    if (selectedMonth) {
+      records = records.filter((r) => r.date.startsWith(selectedMonth));
+    }
+    return records.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [stocktakeRecords, selectedMonth]);
+
+  const locationSummary = useMemo(() => {
+    return getStocktakeSummaryByLocation(selectedMonth);
+  }, [getStocktakeSummaryByLocation, selectedMonth]);
+
+  const categorySummary = useMemo(() => {
+    return getStocktakeSummaryByCategory(selectedMonth);
+  }, [getStocktakeSummaryByCategory, selectedMonth]);
+
   const handleSubmit = () => {
     const allFilled = stocktakeItems.every((i) => i.actualQuantity !== null);
     if (!allFilled) {
@@ -170,6 +209,7 @@ export default function StocktakePage() {
     setStocktakeItems([]);
     setSelectedLocation('');
     setHandler('');
+    setSelectedMonth(dayjs().format('YYYY-MM'));
     setActiveTab('history');
   };
 
@@ -187,10 +227,25 @@ export default function StocktakePage() {
     });
   };
 
-  const historyRecords = useMemo(() => {
-    return [...stocktakeRecords]
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [stocktakeRecords]);
+  const handleExport = () => {
+    if (!selectedMonth) {
+      message.warning('请先选择要导出的月份');
+      return;
+    }
+    const csvContent = exportStocktakeRecords(selectedMonth);
+    if (!csvContent || csvContent.length <= 3) {
+      message.warning('该月份暂无盘点记录可导出');
+      return;
+    }
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `盘点记录_${selectedMonth}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    message.success(`盘点记录已导出（${selectedMonth}）`);
+  };
 
   const differenceColumns = [
     {
@@ -300,7 +355,7 @@ export default function StocktakePage() {
         <div>
           <div className="font-medium text-gray-800">{text}</div>
           <div className="text-xs text-gray-400">
-            {getCategoryLabel(record.category)} · {record.batchNo}
+            {getCategoryLabel(record.category as any)} · {record.batchNo}
           </div>
         </div>
       ),
@@ -385,6 +440,131 @@ export default function StocktakePage() {
         ),
     },
   ];
+
+  const locationSummaryColumns = [
+    {
+      title: '存放位置',
+      dataIndex: 'location',
+      key: 'location',
+      width: 200,
+      render: (text: string) => (
+        <span className="flex items-center gap-2">
+          <MapPin size={14} className="text-gray-400" />
+          <span className="font-medium">{text}</span>
+        </span>
+      ),
+    },
+    {
+      title: '材料总数',
+      dataIndex: 'totalItems',
+      key: 'totalItems',
+      width: 100,
+      render: (val: number) => <span className="font-medium">{val} 项</span>,
+    },
+    {
+      title: '相符',
+      dataIndex: 'matchedCount',
+      key: 'matchedCount',
+      width: 100,
+      render: (val: number) => (
+        <span className="text-green-600 font-medium">{val} 项</span>
+      ),
+    },
+    {
+      title: '盘盈',
+      dataIndex: 'surplusCount',
+      key: 'surplusCount',
+      width: 160,
+      render: (val: number, record: StocktakeSummaryByLocation) => (
+        <div>
+          <span className="text-green-600 font-medium">{val} 项</span>
+          {record.surplusQuantity > 0 && (
+            <span className="text-xs text-gray-400 ml-2">(+{record.surplusQuantity})</span>
+          )}
+        </div>
+      ),
+    },
+    {
+      title: '盘亏',
+      dataIndex: 'deficitCount',
+      key: 'deficitCount',
+      width: 160,
+      render: (val: number, record: StocktakeSummaryByLocation) => (
+        <div>
+          <span className="text-red-600 font-medium">{val} 项</span>
+          {record.deficitQuantity > 0 && (
+            <span className="text-xs text-gray-400 ml-2">(-{record.deficitQuantity})</span>
+          )}
+        </div>
+      ),
+    },
+  ];
+
+  const categorySummaryColumns = [
+    {
+      title: '材料分类',
+      dataIndex: 'category',
+      key: 'category',
+      width: 200,
+      render: (val: string) => (
+        <span className="flex items-center gap-2">
+          <Tag color="blue">{getCategoryLabel(val as any)}</Tag>
+        </span>
+      ),
+    },
+    {
+      title: '材料总数',
+      dataIndex: 'totalItems',
+      key: 'totalItems',
+      width: 100,
+      render: (val: number) => <span className="font-medium">{val} 项</span>,
+    },
+    {
+      title: '相符',
+      dataIndex: 'matchedCount',
+      key: 'matchedCount',
+      width: 100,
+      render: (val: number) => (
+        <span className="text-green-600 font-medium">{val} 项</span>
+      ),
+    },
+    {
+      title: '盘盈',
+      dataIndex: 'surplusCount',
+      key: 'surplusCount',
+      width: 160,
+      render: (val: number, record: StocktakeSummaryByCategory) => (
+        <div>
+          <span className="text-green-600 font-medium">{val} 项</span>
+          {record.surplusQuantity > 0 && (
+            <span className="text-xs text-gray-400 ml-2">(+{record.surplusQuantity})</span>
+          )}
+        </div>
+      ),
+    },
+    {
+      title: '盘亏',
+      dataIndex: 'deficitCount',
+      key: 'deficitCount',
+      width: 160,
+      render: (val: number, record: StocktakeSummaryByCategory) => (
+        <div>
+          <span className="text-red-600 font-medium">{val} 项</span>
+          {record.deficitQuantity > 0 && (
+            <span className="text-xs text-gray-400 ml-2">(-{record.deficitQuantity})</span>
+          )}
+        </div>
+      ),
+    },
+  ];
+
+  const summaryStats = useMemo(() => {
+    const totalItems = locationSummary.reduce((sum, r) => sum + r.totalItems, 0);
+    const totalMatched = locationSummary.reduce((sum, r) => sum + r.matchedCount, 0);
+    const totalSurplus = locationSummary.reduce((sum, r) => sum + r.surplusCount, 0);
+    const totalDeficit = locationSummary.reduce((sum, r) => sum + r.deficitCount, 0);
+    return { totalItems, totalMatched, totalSurplus, totalDeficit };
+  }, [locationSummary]);
 
   const newTabContent = !isStarted ? (
     <div className="text-center py-12">
@@ -517,6 +697,34 @@ export default function StocktakePage() {
 
   const historyTabContent = (
     <div className="mt-4">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <span className="text-gray-600 text-sm">盘点月份：</span>
+          <Select
+            value={selectedMonth}
+            onChange={setSelectedMonth}
+            style={{ width: 160 }}
+            size="middle"
+          >
+            {monthOptions.map((m) => (
+              <Option key={m} value={m}>
+                {m}
+              </Option>
+            ))}
+          </Select>
+          <span className="text-gray-500 text-sm">
+            共 {historyRecords.length} 条记录
+          </span>
+        </div>
+        <Button
+          icon={<Download size={14} />}
+          onClick={handleExport}
+          disabled={historyRecords.length === 0}
+        >
+          导出CSV
+        </Button>
+      </div>
+
       {historyRecords.length > 0 ? (
         <Table
           columns={differenceColumns}
@@ -534,10 +742,113 @@ export default function StocktakePage() {
         <Empty
           description={
             <div className="py-8">
-              <p className="mb-2">暂无盘点记录</p>
+              <p className="mb-2">该月份暂无盘点记录</p>
               <Button type="link" onClick={() => setActiveTab('new')}>
                 去新建盘点
               </Button>
+            </div>
+          }
+        />
+      )}
+    </div>
+  );
+
+  const summaryTabContent = (
+    <div className="mt-4 space-y-6">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <span className="text-gray-600 text-sm">统计月份：</span>
+          <Select
+            value={selectedMonth}
+            onChange={setSelectedMonth}
+            style={{ width: 160 }}
+            size="middle"
+          >
+            {monthOptions.map((m) => (
+              <Option key={m} value={m}>
+                {m}
+              </Option>
+            ))}
+          </Select>
+          <Radio.Group
+            value={summaryViewMode}
+            onChange={(e) => setSummaryViewMode(e.target.value)}
+            size="middle"
+            optionType="button"
+            buttonStyle="solid"
+          >
+            <Radio.Button value="location">
+              <span className="flex items-center gap-1">
+                <Grid3X3 size={14} />
+                按位置汇总
+              </span>
+            </Radio.Button>
+            <Radio.Button value="category">
+              <span className="flex items-center gap-1">
+                <Layers size={14} />
+                按分类汇总
+              </span>
+            </Radio.Button>
+          </Radio.Group>
+        </div>
+        <Button
+          icon={<Download size={14} />}
+          onClick={handleExport}
+          disabled={summaryStats.totalItems === 0}
+        >
+          导出该月明细
+        </Button>
+      </div>
+
+      {summaryStats.totalItems > 0 ? (
+        <>
+          <Alert
+            message={
+              <span className="flex items-center gap-2">
+                <BarChart3 size={16} className="text-blue-500" />
+                <span>
+                  {selectedMonth} 月盘点汇总
+                </span>
+              </span>
+            }
+            description={
+              <Row gutter={[16, 8]} className="mt-2">
+                <Col xs={12} sm={6}>
+                  <span className="text-gray-600">材料总数：</span>
+                  <span className="font-semibold text-gray-800 ml-1">{summaryStats.totalItems} 项</span>
+                </Col>
+                <Col xs={12} sm={6}>
+                  <span className="text-gray-600">账实相符：</span>
+                  <span className="font-semibold text-green-600 ml-1">{summaryStats.totalMatched} 项</span>
+                </Col>
+                <Col xs={12} sm={6}>
+                  <span className="text-gray-600">盘盈：</span>
+                  <span className="font-semibold text-green-600 ml-1">{summaryStats.totalSurplus} 项</span>
+                </Col>
+                <Col xs={12} sm={6}>
+                  <span className="text-gray-600">盘亏：</span>
+                  <span className="font-semibold text-red-600 ml-1">{summaryStats.totalDeficit} 项</span>
+                </Col>
+              </Row>
+            }
+            type="info"
+            showIcon={false}
+          />
+
+          <Table<any>
+            columns={summaryViewMode === 'location' ? locationSummaryColumns as any : categorySummaryColumns as any}
+            dataSource={summaryViewMode === 'location' ? locationSummary as any : categorySummary as any}
+            rowKey={summaryViewMode === 'location' ? 'location' : 'category'}
+            pagination={false}
+            size="small"
+          />
+        </>
+      ) : (
+        <Empty
+          description={
+            <div className="py-8">
+              <BarChart3 size={48} className="text-gray-300 mx-auto mb-3" />
+              <p className="text-gray-500">该月份暂无盘点汇总数据</p>
             </div>
           }
         />
@@ -584,6 +895,16 @@ export default function StocktakePage() {
                 </span>
               ),
               children: historyTabContent,
+            },
+            {
+              key: 'summary',
+              label: (
+                <span className="flex items-center gap-1">
+                  <BarChart3 size={16} />
+                  盘点汇总
+                </span>
+              ),
+              children: summaryTabContent,
             },
           ]}
         />

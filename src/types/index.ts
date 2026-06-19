@@ -20,6 +20,7 @@ export interface Material {
   status: MaterialStatus;
   handler: string;
   remark?: string;
+  safeStock?: number;
 }
 
 export interface UsageRecord {
@@ -102,3 +103,59 @@ export interface StocktakeRecord {
 }
 
 export type StocktakeViewMode = 'byLocation' | 'byCategory';
+
+export interface StocktakeSummaryByLocation {
+  location: string;
+  totalItems: number;
+  surplusCount: number;
+  deficitCount: number;
+  matchedCount: number;
+  surplusQuantity: number;
+  deficitQuantity: number;
+}
+
+export interface StocktakeSummaryByCategory {
+  category: MaterialCategory;
+  totalItems: number;
+  surplusCount: number;
+  deficitCount: number;
+  matchedCount: number;
+  surplusQuantity: number;
+  deficitQuantity: number;
+}
+
+export interface UsageSummaryByDepartment {
+  department: string;
+  totalQuantity: number;
+  materials: {
+    materialId: string;
+    name: string;
+    quantity: number;
+    unit: string;
+  }[];
+}
+
+export interface UsageSummaryByUser {
+  user: string;
+  department: string;
+  totalQuantity: number;
+  materials: {
+    materialId: string;
+    name: string;
+    quantity: number;
+    unit: string;
+  }[];
+}
+
+export interface LowStockItem {
+  id: string;
+  name: string;
+  category: MaterialCategory;
+  batchNo: string;
+  location: string;
+  quantity: number;
+  unit: string;
+  safeStock: number;
+  shortfall: number;
+  status: MaterialStatus;
+}

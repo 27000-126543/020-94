@@ -91,6 +91,7 @@ export default function Inventory() {
   const [scanState, setScanState] = useState<ScanState>('idle');
   const [scannedBarcode, setScannedBarcode] = useState<string>('');
   const [foundBarcodeInfo, setFoundBarcodeInfo] = useState<BarcodeInfo | null>(null);
+  const [usedExpirySource, setUsedExpirySource] = useState<'default' | 'last' | 'none'>('none');
 
   const recentMaterials = [...materials].sort(
     (a, b) => new Date(b.inDate).getTime() - new Date(a.inDate).getTime()
@@ -151,9 +152,15 @@ export default function Inventory() {
       if (info.defaultBatchNo) {
         formValues.batchNo = info.defaultBatchNo;
       }
-      if (info.lastExpiryDate) {
+      let expirySource: 'default' | 'last' | 'none' = 'none';
+      if (info.defaultExpiryDate) {
+        formValues.expiryDate = dayjs(info.defaultExpiryDate);
+        expirySource = 'default';
+      } else if (info.lastExpiryDate) {
         formValues.expiryDate = dayjs(info.lastExpiryDate);
+        expirySource = 'last';
       }
+      setUsedExpirySource(expirySource);
       if (info.lastQuantity) {
         formValues.quantity = info.lastQuantity;
       }
@@ -161,6 +168,7 @@ export default function Inventory() {
     } else {
       setFoundBarcodeInfo(null);
       setScanState('notfound');
+      setUsedExpirySource('none');
       scanForm.resetFields();
     }
   };
@@ -488,13 +496,65 @@ export default function Inventory() {
                           <Tag color="blue">{foundBarcodeInfo.defaultBatchNo}</Tag>
                         </Descriptions.Item>
                       )}
+                      {foundBarcodeInfo.defaultExpiryDate && (
+                        <Descriptions.Item label="默认有效期">
+                          <Space>
+                            {foundBarcodeInfo.defaultExpiryDate}
+                            {usedExpirySource === 'default' && (
+                              <Tag color="green" style={{ marginLeft: 8 }}>
+                                ✓ 当前使用
+                              </Tag>
+                            )}
+                          </Space>
+                        </Descriptions.Item>
+                      )}
                       {foundBarcodeInfo.lastExpiryDate && (
-                        <Descriptions.Item label="最近有效期">{foundBarcodeInfo.lastExpiryDate}</Descriptions.Item>
+                        <Descriptions.Item label="最近有效期">
+                          <Space>
+                            {foundBarcodeInfo.lastExpiryDate}
+                            {usedExpirySource === 'last' && (
+                              <Tag color="orange" style={{ marginLeft: 8 }}>
+                                ✓ 当前使用
+                              </Tag>
+                            )}
+                          </Space>
+                        </Descriptions.Item>
+                      )}
+                      {foundBarcodeInfo.lastInDate && (
+                        <Descriptions.Item label="最近入库日期">{foundBarcodeInfo.lastInDate}</Descriptions.Item>
                       )}
                       {foundBarcodeInfo.lastQuantity && (
                         <Descriptions.Item label="最近入库量">{foundBarcodeInfo.lastQuantity} {foundBarcodeInfo.unit}</Descriptions.Item>
                       )}
                     </Descriptions>
+                    {foundBarcodeInfo.defaultExpiryDate && foundBarcodeInfo.lastExpiryDate && (
+                      <Alert
+                        type="info"
+                        showIcon
+                        message={
+                          <span>
+                            同时存在默认和最近有效期，当前优先带入
+                            <Tag color="green" style={{ marginLeft: 4 }}>默认有效期</Tag>
+                            （{foundBarcodeInfo.defaultExpiryDate}）
+                          </span>
+                        }
+                        className="mb-4"
+                      />
+                    )}
+                    {usedExpirySource === 'last' && foundBarcodeInfo.lastExpiryDate && !foundBarcodeInfo.defaultExpiryDate && (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        message={
+                          <span>
+                            未设置默认有效期，当前带入
+                            <Tag color="orange" style={{ marginLeft: 4 }}>最近有效期</Tag>
+                            （{foundBarcodeInfo.lastExpiryDate}）
+                          </span>
+                        }
+                        className="mb-4"
+                      />
+                    )}
                   </>
                 )}
 

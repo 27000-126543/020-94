@@ -11,6 +11,11 @@ import {
   StocktakeRecord,
   StocktakeStatus,
   FollowUpStatus,
+  LowStockItem,
+  StocktakeSummaryByLocation,
+  StocktakeSummaryByCategory,
+  UsageSummaryByDepartment,
+  UsageSummaryByUser,
 } from '@/types';
 import {
   mockMaterials,
@@ -19,7 +24,7 @@ import {
   mockBarcodeLibrary,
   mockStocktakeRecords,
 } from '@/mock/data';
-import { generateId, getStatusByExpiryDate } from '@/utils/status';
+import { generateId, getStatusByExpiryDate, getCategoryLabel } from '@/utils/status';
 import { getToday } from '@/utils/date';
 
 interface ProcessFilter {
@@ -91,6 +96,18 @@ interface MaterialState {
   getAllHandlers: () => string[];
   getAllDepartments: () => string[];
   getAllUsers: () => string[];
+
+  setSafeStock: (materialId: string, safeStock: number) => void;
+  getLowStockItems: () => LowStockItem[];
+
+  getStocktakeSummaryByLocation: (month?: string) => StocktakeSummaryByLocation[];
+  getStocktakeSummaryByCategory: (month?: string) => StocktakeSummaryByCategory[];
+  getStocktakeRecordsByMonth: (month: string) => StocktakeRecord[];
+  exportStocktakeRecords: (month: string) => string;
+
+  getUsageSummaryByDepartment: (month: string, department?: string) => UsageSummaryByDepartment[];
+  getUsageSummaryByUser: (month: string, user?: string) => UsageSummaryByUser[];
+  getUsageRecordsByMonth: (month: string, department?: string) => UsageRecord[];
 
   refreshStatuses: () => void;
 }
@@ -472,6 +489,212 @@ export const useMaterialStore = create<MaterialState>()(
           if (r.user) users.add(r.user);
         });
         return Array.from(users);
+      },
+
+      setSafeStock: (materialId, safeStock) =>
+        set((state) => ({
+          materials: state.materials.map((m) =>
+            m.id === materialId ? { ...m, safeStock } : m
+          ),
+        })),
+
+      getLowStockItems: () => {
+        const result: LowStockItem[] = [];
+        get().materials.forEach((m) => {
+          if (m.safeStock !== undefined && m.quantity < m.safeStock) {
+            result.push({
+              id: m.id,
+              name: m.name,
+              category: m.category,
+              batchNo: m.batchNo,
+              location: m.location,
+              quantity: m.quantity,
+              unit: m.unit,
+              safeStock: m.safeStock,
+              shortfall: m.safeStock - m.quantity,
+              status: m.status,
+            });
+          }
+        });
+        return result.sort((a, b) => a.shortfall - b.shortfall);
+      },
+
+      getStocktakeRecordsByMonth: (month) => {
+        return get().stocktakeRecords.filter((r) => r.date.startsWith(month));
+      },
+
+      getStocktakeSummaryByLocation: (month) => {
+        const records = month
+          ? get().getStocktakeRecordsByMonth(month)
+          : get().stocktakeRecords;
+        const locationMap = new Map<string, StocktakeSummaryByLocation>();
+
+        records.forEach((r) => {
+          const existing = locationMap.get(r.location) || {
+            location: r.location,
+            totalItems: 0,
+            surplusCount: 0,
+            deficitCount: 0,
+            matchedCount: 0,
+            surplusQuantity: 0,
+            deficitQuantity: 0,
+          };
+          existing.totalItems++;
+          if (r.difference > 0) {
+            existing.surplusCount++;
+            existing.surplusQuantity += r.difference;
+          } else if (r.difference < 0) {
+            existing.deficitCount++;
+            existing.deficitQuantity += Math.abs(r.difference);
+          } else {
+            existing.matchedCount++;
+          }
+          locationMap.set(r.location, existing);
+        });
+
+        return Array.from(locationMap.values());
+      },
+
+      getStocktakeSummaryByCategory: (month) => {
+        const records = month
+          ? get().getStocktakeRecordsByMonth(month)
+          : get().stocktakeRecords;
+        const categoryMap = new Map<string, StocktakeSummaryByCategory>();
+
+        records.forEach((r) => {
+          const existing = categoryMap.get(r.category) || {
+            category: r.category,
+            totalItems: 0,
+            surplusCount: 0,
+            deficitCount: 0,
+            matchedCount: 0,
+            surplusQuantity: 0,
+            deficitQuantity: 0,
+          };
+          existing.totalItems++;
+          if (r.difference > 0) {
+            existing.surplusCount++;
+            existing.surplusQuantity += r.difference;
+          } else if (r.difference < 0) {
+            existing.deficitCount++;
+            existing.deficitQuantity += Math.abs(r.difference);
+          } else {
+            existing.matchedCount++;
+          }
+          categoryMap.set(r.category, existing);
+        });
+
+        return Array.from(categoryMap.values());
+      },
+
+      exportStocktakeRecords: (month) => {
+        const records = get().getStocktakeRecordsByMonth(month);
+        const headers = [
+          '盘点日期',
+          '材料名称',
+          '分类',
+          '批号',
+          '规格',
+          '存放位置',
+          '账面数量',
+          '实盘数量',
+          '差异',
+          '差异原因',
+          '经办人',
+        ];
+        const rows = records.map((r) => [
+          r.date,
+          r.name,
+          getCategoryLabel(r.category),
+          r.batchNo,
+          r.specification,
+          r.location,
+          `${r.systemQuantity} ${r.unit}`,
+          `${r.actualQuantity} ${r.unit}`,
+          r.difference > 0 ? `+${r.difference}` : String(r.difference),
+          r.reason || '-',
+          r.handler,
+        ]);
+        const csvContent = [
+          headers.join(','),
+          ...rows.map((row) => row.map((cell) => `"${cell}"`).join(',')),
+        ].join('\n');
+        return '\uFEFF' + csvContent;
+      },
+
+      getUsageRecordsByMonth: (month, department) => {
+        let records = get().usageRecords.filter((r) => r.date.startsWith(month));
+        if (department) {
+          records = records.filter((r) => r.department === department);
+        }
+        return records.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      },
+
+      getUsageSummaryByDepartment: (month, department) => {
+        const records = get().getUsageRecordsByMonth(month, department);
+        const deptMap = new Map<string, UsageSummaryByDepartment>();
+
+        records.forEach((r) => {
+          const material = get().materials.find((m) => m.id === r.materialId);
+          const existing = deptMap.get(r.department) || {
+            department: r.department,
+            totalQuantity: 0,
+            materials: [],
+          };
+          existing.totalQuantity += r.quantity;
+          const matIdx = existing.materials.findIndex((m) => m.materialId === r.materialId);
+          if (matIdx >= 0) {
+            existing.materials[matIdx].quantity += r.quantity;
+          } else if (material) {
+            existing.materials.push({
+              materialId: r.materialId,
+              name: material.name,
+              quantity: r.quantity,
+              unit: material.unit,
+            });
+          }
+          deptMap.set(r.department, existing);
+        });
+
+        return Array.from(deptMap.values()).sort(
+          (a, b) => b.totalQuantity - a.totalQuantity
+        );
+      },
+
+      getUsageSummaryByUser: (month, user) => {
+        let records = get().usageRecords.filter((r) => r.date.startsWith(month));
+        if (user) {
+          records = records.filter((r) => r.user === user);
+        }
+        const userMap = new Map<string, UsageSummaryByUser>();
+
+        records.forEach((r) => {
+          const material = get().materials.find((m) => m.id === r.materialId);
+          const key = `${r.user}__${r.department}`;
+          const existing = userMap.get(key) || {
+            user: r.user,
+            department: r.department,
+            totalQuantity: 0,
+            materials: [],
+          };
+          existing.totalQuantity += r.quantity;
+          const matIdx = existing.materials.findIndex((m) => m.materialId === r.materialId);
+          if (matIdx >= 0) {
+            existing.materials[matIdx].quantity += r.quantity;
+          } else if (material) {
+            existing.materials.push({
+              materialId: r.materialId,
+              name: material.name,
+              quantity: r.quantity,
+              unit: material.unit,
+            });
+          }
+          userMap.set(key, existing);
+        });
+
+        return Array.from(userMap.values()).sort(
+          (a, b) => b.totalQuantity - a.totalQuantity
+        );
       },
 
       refreshStatuses: () =>
