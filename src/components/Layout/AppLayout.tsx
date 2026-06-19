@@ -8,6 +8,9 @@ import {
   User,
   Bell,
   FileSpreadsheet,
+  ArrowRightLeft,
+  ClipboardCheck,
+  Barcode,
 } from 'lucide-react';
 
 const { Header, Sider, Content } = Layout;
@@ -15,6 +18,15 @@ const { Header, Sider, Content } = Layout;
 interface AppLayoutProps {
   children: React.ReactNode;
 }
+
+const pageTitleMap: Record<string, string> = {
+  '/': '预警清单',
+  '/inventory': '入库登记',
+  '/usage': '领用登记',
+  '/stocktake': '月底盘点',
+  '/ledger': '处理台账',
+  '/barcode': '条码资料',
+};
 
 export default function AppLayout({ children }: AppLayoutProps) {
   const navigate = useNavigate();
@@ -36,18 +48,32 @@ export default function AppLayout({ children }: AppLayoutProps) {
       label: '入库登记',
     },
     {
+      key: '/usage',
+      icon: <ArrowRightLeft size={18} />,
+      label: '领用登记',
+    },
+    {
+      key: '/stocktake',
+      icon: <ClipboardCheck size={18} />,
+      label: '月底盘点',
+    },
+    {
       key: '/ledger',
       icon: <FileSpreadsheet size={18} />,
       label: '处理台账',
     },
+    {
+      key: '/barcode',
+      icon: <Barcode size={18} />,
+      label: '条码资料',
+    },
   ];
 
-  const selectedKey =
-    location.pathname === '/inventory'
-      ? '/inventory'
-      : location.pathname === '/ledger'
-      ? '/ledger'
-      : '/';
+  const selectedKey = Object.keys(pageTitleMap).includes(location.pathname)
+    ? location.pathname
+    : '/';
+
+  const pageTitle = pageTitleMap[selectedKey] || '效期预警台';
 
   return (
     <Layout className="min-h-screen">
@@ -94,11 +120,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
         >
           <div className="flex items-center gap-4">
             <h1 className="text-xl font-semibold text-gray-800 m-0">
-              {selectedKey === '/'
-                ? '预警清单'
-                : selectedKey === '/inventory'
-                ? '入库登记'
-                : '处理台账'}
+              {pageTitle}
             </h1>
           </div>
           <div className="flex items-center gap-4">

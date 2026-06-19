@@ -8,12 +8,16 @@ import {
   MaterialCategory,
   BarcodeInfo,
   BatchSummary,
+  StocktakeRecord,
+  StocktakeStatus,
+  FollowUpStatus,
 } from '@/types';
 import {
   mockMaterials,
   mockUsageRecords,
   mockProcessRecords,
   mockBarcodeLibrary,
+  mockStocktakeRecords,
 } from '@/mock/data';
 import { generateId, getStatusByExpiryDate } from '@/utils/status';
 import { getToday } from '@/utils/date';
@@ -22,6 +26,13 @@ interface ProcessFilter {
   month?: string;
   type?: ProcessType | 'all';
   handler?: string;
+  followUpStatus?: FollowUpStatus | 'all';
+}
+
+interface StocktakeFilter {
+  location?: string;
+  month?: string;
+  handler?: string;
 }
 
 interface MaterialState {
@@ -29,16 +40,27 @@ interface MaterialState {
   usageRecords: UsageRecord[];
   processRecords: ProcessRecord[];
   barcodeLibrary: BarcodeInfo[];
+  stocktakeRecords: StocktakeRecord[];
 
-  addMaterial: (material: Omit<Material, 'id' | 'status' | 'inDate'>) => void;
+  addMaterial: (material: Omit<Material, 'id' | 'status' | 'inDate'>) => string;
   updateMaterial: (id: string, updates: Partial<Material>) => void;
   deleteMaterial: (id: string) => void;
 
   addUsageRecord: (record: Omit<UsageRecord, 'id'>) => void;
+
   addProcessRecord: (record: Omit<ProcessRecord, 'id' | 'date'>) => void;
+  updateProcessRecord: (id: string, updates: Partial<ProcessRecord>) => void;
 
   addBarcodeInfo: (info: BarcodeInfo) => void;
+  updateBarcodeInfo: (barcode: string, updates: Partial<BarcodeInfo>) => void;
   getBarcodeInfo: (barcode: string) => BarcodeInfo | undefined;
+  deleteBarcodeInfo: (barcode: string) => void;
+  updateBarcodeLastInfo: (barcode: string, data: { batchNo: string; expiryDate: string; quantity: number }) => void;
+
+  addStocktakeRecord: (record: Omit<StocktakeRecord, 'id'>) => void;
+  updateStocktakeRecord: (id: string, updates: Partial<StocktakeRecord>) => void;
+  getStocktakeRecords: (filters: StocktakeFilter) => StocktakeRecord[];
+  generateStocktakeByLocation: (location: string) => Omit<StocktakeRecord, 'id' | 'actualQuantity' | 'difference' | 'handler' | 'date' | 'status'>[];
 
   getMaterialById: (id: string) => Material | undefined;
   getUsageRecordsByMaterialId: (materialId: string) => UsageRecord[];
@@ -65,7 +87,10 @@ interface MaterialState {
   getBatchSummaries: () => BatchSummary[];
   getBatchSummary: (name: string, batchNo: string) => BatchSummary | undefined;
 
+  getAllLocations: () => string[];
   getAllHandlers: () => string[];
+  getAllDepartments: () => string[];
+  getAllUsers: () => string[];
 
   refreshStatuses: () => void;
 }
@@ -77,8 +102,10 @@ export const useMaterialStore = create<MaterialState>()(
       usageRecords: mockUsageRecords,
       processRecords: mockProcessRecords,
       barcodeLibrary: mockBarcodeLibrary,
+      stocktakeRecords: mockStocktakeRecords,
 
-      addMaterial: (material) =>
+      addMaterial: (material) => {
+        let newId = '';
         set((state) => {
           const newMaterial: Material = {
             ...material,
@@ -86,8 +113,11 @@ export const useMaterialStore = create<MaterialState>()(
             status: getStatusByExpiryDate(material.expiryDate),
             inDate: getToday(),
           };
+          newId = newMaterial.id;
           return { materials: [newMaterial, ...state.materials] };
-        }),
+        });
+        return newId;
+      },
 
       updateMaterial: (id, updates) =>
         set((state) => ({
@@ -133,10 +163,20 @@ export const useMaterialStore = create<MaterialState>()(
             id: generateId(),
             date: getToday(),
           };
+          if (record.type === 'returnExchange' && !record.followUpStatus) {
+            newRecord.followUpStatus = 'pending';
+          }
           return {
             processRecords: [newRecord, ...state.processRecords],
           };
         }),
+
+      updateProcessRecord: (id, updates) =>
+        set((state) => ({
+          processRecords: state.processRecords.map((r) =>
+            r.id === id ? { ...r, ...updates } : r
+          ),
+        })),
 
       addBarcodeInfo: (info) =>
         set((state) => {
@@ -151,8 +191,82 @@ export const useMaterialStore = create<MaterialState>()(
           return { barcodeLibrary: [...state.barcodeLibrary, info] };
         }),
 
+      updateBarcodeInfo: (barcode, updates) =>
+        set((state) => ({
+          barcodeLibrary: state.barcodeLibrary.map((b) =>
+            b.barcode === barcode ? { ...b, ...updates } : b
+          ),
+        })),
+
       getBarcodeInfo: (barcode) => {
         return get().barcodeLibrary.find((b) => b.barcode === barcode);
+      },
+
+      deleteBarcodeInfo: (barcode) =>
+        set((state) => ({
+          barcodeLibrary: state.barcodeLibrary.filter((b) => b.barcode !== barcode),
+        })),
+
+      updateBarcodeLastInfo: (barcode, data) =>
+        set((state) => ({
+          barcodeLibrary: state.barcodeLibrary.map((b) =>
+            b.barcode === barcode
+              ? {
+                  ...b,
+                  defaultBatchNo: data.batchNo,
+                  lastExpiryDate: data.expiryDate,
+                  lastInDate: getToday(),
+                  lastQuantity: data.quantity,
+                }
+              : b
+          ),
+        })),
+
+      addStocktakeRecord: (record) =>
+        set((state) => {
+          const newRecord: StocktakeRecord = {
+            ...record,
+            id: generateId(),
+          };
+          return { stocktakeRecords: [newRecord, ...state.stocktakeRecords] };
+        }),
+
+      updateStocktakeRecord: (id, updates) =>
+        set((state) => ({
+          stocktakeRecords: state.stocktakeRecords.map((r) =>
+            r.id === id ? { ...r, ...updates } : r
+          ),
+        })),
+
+      getStocktakeRecords: ({ location, month, handler }) => {
+        let result = [...get().stocktakeRecords];
+        if (location && location !== 'all') {
+          result = result.filter((r) => r.location === location);
+        }
+        if (month) {
+          result = result.filter((r) => r.date.startsWith(month));
+        }
+        if (handler && handler.trim()) {
+          result = result.filter((r) =>
+            r.handler.toLowerCase().includes(handler.toLowerCase())
+          );
+        }
+        result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        return result;
+      },
+
+      generateStocktakeByLocation: (location) => {
+        const materials = get().materials.filter((m) => m.location === location);
+        return materials.map((m) => ({
+          materialId: m.id,
+          name: m.name,
+          category: m.category,
+          batchNo: m.batchNo,
+          specification: m.specification,
+          location: m.location,
+          systemQuantity: m.quantity,
+          unit: m.unit,
+        }));
       },
 
       getMaterialById: (id) => {
@@ -217,7 +331,7 @@ export const useMaterialStore = create<MaterialState>()(
         return result;
       },
 
-      filterProcessRecords: ({ month, type, handler }) => {
+      filterProcessRecords: ({ month, type, handler, followUpStatus }) => {
         let result = [...get().processRecords];
 
         if (month) {
@@ -234,26 +348,37 @@ export const useMaterialStore = create<MaterialState>()(
           );
         }
 
+        if (followUpStatus && followUpStatus !== 'all') {
+          result = result.filter((r) => r.followUpStatus === followUpStatus);
+        }
+
         result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
         return result;
       },
 
-      exportProcessRecords: ({ month, type, handler }) => {
-        const records = get().filterProcessRecords({ month, type, handler });
+      exportProcessRecords: ({ month, type, handler, followUpStatus }) => {
+        const records = get().filterProcessRecords({ month, type, handler, followUpStatus });
         const typeMap: Record<string, string> = {
           priorityUse: '优先使用',
           returnExchange: '退换联系',
           scrap: '报废登记',
         };
+        const statusMap: Record<string, string> = {
+          pending: '待联系',
+          contacted: '已联系供应商',
+          exchanged: '已换货',
+          closed: '已关闭',
+        };
 
-        let csv = '\uFEFF处理日期,处理方式,材料名称,批号,规格,经办人,备注\n';
+        let csv = '\uFEFF处理日期,处理方式,材料名称,批号,规格,经办人,备注,跟进状态\n';
         records.forEach((r) => {
           const material = get().getMaterialById(r.materialId);
+          const statusLabel = r.type === 'returnExchange' ? (statusMap[r.followUpStatus || 'pending'] || '') : '';
           csv += `${r.date},${typeMap[r.type] || r.type},${
             material?.name || '已删除'
           },${material?.batchNo || ''},${material?.specification || ''},${r.handler},"${
             r.remark || ''
-          }"\n`;
+          }",${statusLabel}\n`;
         });
         return csv;
       },
@@ -319,11 +444,34 @@ export const useMaterialStore = create<MaterialState>()(
           .find((b) => b.name === name && b.batchNo === batchNo);
       },
 
+      getAllLocations: () => {
+        const locations = new Set<string>();
+        get().materials.forEach((m) => locations.add(m.location));
+        return Array.from(locations).sort();
+      },
+
       getAllHandlers: () => {
         const handlers = new Set<string>();
         get().processRecords.forEach((r) => handlers.add(r.handler));
         get().materials.forEach((m) => handlers.add(m.handler));
+        get().stocktakeRecords.forEach((r) => handlers.add(r.handler));
         return Array.from(handlers);
+      },
+
+      getAllDepartments: () => {
+        const depts = new Set<string>();
+        get().usageRecords.forEach((r) => {
+          if (r.department) depts.add(r.department);
+        });
+        return Array.from(depts);
+      },
+
+      getAllUsers: () => {
+        const users = new Set<string>();
+        get().usageRecords.forEach((r) => {
+          if (r.user) users.add(r.user);
+        });
+        return Array.from(users);
       },
 
       refreshStatuses: () =>

@@ -29,8 +29,8 @@ import {
   FileSpreadsheet,
 } from 'lucide-react';
 import { useMaterialStore } from '@/store/useMaterialStore';
-import { ProcessRecord, ProcessType } from '@/types';
-import { PROCESS_TYPE_MAP, getCategoryLabel } from '@/utils/status';
+import { ProcessRecord, ProcessType, FollowUpStatus } from '@/types';
+import { PROCESS_TYPE_MAP, FOLLOWUP_STATUS_MAP, getCategoryLabel } from '@/utils/status';
 import dayjs from 'dayjs';
 
 const { RangePicker } = DatePicker;
@@ -48,6 +48,7 @@ export default function ProcessLedger() {
   const [month, setMonth] = useState<string>(dayjs().format('YYYY-MM'));
   const [processType, setProcessType] = useState<ProcessType | 'all'>('all');
   const [handler, setHandler] = useState<string>('');
+  const [followUpStatus, setFollowUpStatus] = useState<FollowUpStatus | 'all'>('all');
 
   const allHandlers = useMemo(() => getAllHandlers(), [processRecords]);
 
@@ -57,8 +58,9 @@ export default function ProcessLedger() {
         month,
         type: processType,
         handler,
+        followUpStatus,
       }),
-    [processRecords, month, processType, handler]
+    [processRecords, month, processType, handler, followUpStatus]
   );
 
   const stats = useMemo(() => {
@@ -69,7 +71,7 @@ export default function ProcessLedger() {
   }, [filteredRecords]);
 
   const handleExport = () => {
-    const csv = exportProcessRecords({ month, type: processType, handler });
+    const csv = exportProcessRecords({ month, type: processType, handler, followUpStatus });
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
@@ -86,6 +88,7 @@ export default function ProcessLedger() {
     setMonth(dayjs().format('YYYY-MM'));
     setProcessType('all');
     setHandler('');
+    setFollowUpStatus('all');
   };
 
   const getMonthOptions = () => {
@@ -181,6 +184,23 @@ export default function ProcessLedger() {
           <span>{text}</span>
         </div>
       ),
+    },
+    {
+      title: '跟进状态',
+      dataIndex: 'followUpStatus',
+      key: 'followUpStatus',
+      width: 140,
+      render: (status: FollowUpStatus | undefined, record: ProcessRecord) => {
+        if (record.type !== 'returnExchange') {
+          return <span className="text-gray-400">-</span>;
+        }
+        const info = FOLLOWUP_STATUS_MAP[status || 'pending'];
+        return (
+          <Tag color={info.color} style={{ border: 'none' }}>
+            {info.label}
+          </Tag>
+        );
+      },
     },
     {
       title: '备注说明',
@@ -334,6 +354,23 @@ export default function ProcessLedger() {
                     {h}
                   </Option>
                 ))}
+              </Select>
+            </div>
+          </Col>
+          <Col xs={24} sm={12} md={8} lg={6}>
+            <div className="flex items-center gap-2">
+              <span className="text-gray-600 text-sm whitespace-nowrap">跟进状态：</span>
+              <Select
+                value={followUpStatus}
+                onChange={setFollowUpStatus}
+                style={{ width: '100%' }}
+                disabled={processType !== 'all' && processType !== 'returnExchange'}
+              >
+                <Option value="all">全部状态</Option>
+                <Option value="pending">待联系</Option>
+                <Option value="contacted">已联系供应商</Option>
+                <Option value="exchanged">已换货</Option>
+                <Option value="closed">已关闭</Option>
               </Select>
             </div>
           </Col>

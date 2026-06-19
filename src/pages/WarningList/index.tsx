@@ -44,7 +44,7 @@ import StatusTag from '@/components/StatusTag/StatusTag';
 import { useMaterialStore } from '@/store/useMaterialStore';
 import { Material, MaterialStatus, ProcessType, MaterialCategory, BatchSummary } from '@/types';
 import { getRemainingDays, formatDate } from '@/utils/date';
-import { CATEGORY_OPTIONS, STATUS_MAP, PROCESS_TYPE_MAP, getCategoryLabel, getStatusByExpiryDate } from '@/utils/status';
+import { CATEGORY_OPTIONS, STATUS_MAP, PROCESS_TYPE_MAP, FOLLOWUP_STATUS_OPTIONS, getCategoryLabel, getStatusByExpiryDate } from '@/utils/status';
 
 const { Search: SearchInput } = Input;
 const { Option } = Select;
@@ -197,24 +197,36 @@ export default function WarningList() {
   const handleProcessSubmit = async () => {
     try {
       const values = await form.validateFields();
+      if (!values.remark || !values.remark.trim()) {
+        message.warning('请填写真实的处理备注，不能只输入空格');
+        return;
+      }
       if (selectedMaterial && processType) {
-        addProcessRecord({
+        const recordData: Parameters<typeof addProcessRecord>[0] = {
           materialId: selectedMaterial.id,
           type: processType,
           handler: values.handler,
-          remark: values.remark,
-        });
+          remark: values.remark.trim(),
+        };
+        if (processType === 'returnExchange' && values.followUpStatus) {
+          recordData.followUpStatus = values.followUpStatus;
+        }
+        addProcessRecord(recordData);
         message.success('处理记录已保存');
         setProcessModalVisible(false);
         setProcessType(null);
       } else if (selectedBatch && processType) {
         selectedBatch.locations.forEach((loc) => {
-          addProcessRecord({
+          const recordData: Parameters<typeof addProcessRecord>[0] = {
             materialId: loc.materialId,
             type: processType,
             handler: values.handler,
-            remark: values.remark,
-          });
+            remark: values.remark.trim(),
+          };
+          if (processType === 'returnExchange' && values.followUpStatus) {
+            recordData.followUpStatus = values.followUpStatus;
+          }
+          addProcessRecord(recordData);
         });
         message.success(`处理记录已保存（共 ${selectedBatch.locations.length} 条）`);
         setProcessModalVisible(false);
@@ -1037,10 +1049,35 @@ export default function WarningList() {
           >
             <Input placeholder="请输入经办人姓名" prefix={<User size={16} />} />
           </Form.Item>
+          {processType === 'returnExchange' && (
+            <Form.Item
+              name="followUpStatus"
+              label="跟进状态"
+              initialValue="pending"
+            >
+              <Select placeholder="请选择跟进状态">
+                {FOLLOWUP_STATUS_OPTIONS.map((opt) => (
+                  <Option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </Option>
+                ))}
+              </Select>
+            </Form.Item>
+          )}
           <Form.Item
             name="remark"
             label="备注"
-            rules={[{ required: true, message: '请输入处理备注，方便月底核对' }]}
+            rules={[
+              { required: true, message: '请输入处理备注，方便月底核对' },
+              {
+                validator: (_, value) => {
+                  if (value && value.trim() === '') {
+                    return Promise.reject('请填写真实的处理说明，不能只输入空格');
+                  }
+                  return Promise.resolve();
+                },
+              },
+            ]}
           >
             <TextArea rows={4} placeholder="请详细说明处理情况（必填）" maxLength={200} showCount />
           </Form.Item>

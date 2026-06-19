@@ -1,4 +1,4 @@
-import { MaterialStatus, StatusInfo, CategoryOption } from '@/types';
+import { MaterialStatus, StatusInfo, CategoryOption, FollowUpStatus } from '@/types';
 import { getRemainingDays } from './date';
 
 export function getStatusByDays(days: number): MaterialStatus {
@@ -56,6 +56,20 @@ export const PROCESS_TYPE_MAP: Record<string, { label: string; color: string }> 
   returnExchange: { label: '退换联系', color: '#fa8c16' },
   scrap: { label: '报废登记', color: '#ff4d4f' },
 };
+
+export const FOLLOWUP_STATUS_MAP: Record<FollowUpStatus, { label: string; color: string }> = {
+  pending: { label: '待联系', color: '#fa8c16' },
+  contacted: { label: '已联系供应商', color: '#1677ff' },
+  exchanged: { label: '已换货', color: '#52c41a' },
+  closed: { label: '已关闭', color: '#8c8c8c' },
+};
+
+export const FOLLOWUP_STATUS_OPTIONS = [
+  { value: 'pending', label: '待联系' },
+  { value: 'contacted', label: '已联系供应商' },
+  { value: 'exchanged', label: '已换货' },
+  { value: 'closed', label: '已关闭' },
+];
 
 export function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substr(2, 9);

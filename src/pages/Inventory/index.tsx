@@ -83,7 +83,7 @@ const categoryIconMap: Record<string, React.ReactNode> = {
 type ScanState = 'idle' | 'found' | 'notfound';
 
 export default function Inventory() {
-  const { materials, addMaterial, deleteMaterial, getBarcodeInfo, addBarcodeInfo } = useMaterialStore();
+  const { materials, addMaterial, deleteMaterial, getBarcodeInfo, addBarcodeInfo, updateBarcodeLastInfo } = useMaterialStore();
   const [form] = Form.useForm();
   const [scanForm] = Form.useForm();
   const [activeTab, setActiveTab] = useState('form');
@@ -141,13 +141,23 @@ export default function Inventory() {
     if (info) {
       setFoundBarcodeInfo(info);
       setScanState('found');
-      scanForm.setFieldsValue({
+      const formValues: Record<string, any> = {
         name: info.name,
         category: info.category,
         specification: info.specification,
         unit: info.unit,
         location: info.defaultLocation,
-      });
+      };
+      if (info.defaultBatchNo) {
+        formValues.batchNo = info.defaultBatchNo;
+      }
+      if (info.lastExpiryDate) {
+        formValues.expiryDate = dayjs(info.lastExpiryDate);
+      }
+      if (info.lastQuantity) {
+        formValues.quantity = info.lastQuantity;
+      }
+      scanForm.setFieldsValue(formValues);
     } else {
       setFoundBarcodeInfo(null);
       setScanState('notfound');
@@ -158,13 +168,14 @@ export default function Inventory() {
   const handleScanSubmit = async () => {
     try {
       const values = await scanForm.validateFields();
+      const expiryDateStr = values.expiryDate.format('YYYY-MM-DD');
 
       addMaterial({
         name: values.name,
         category: values.category,
         batchNo: values.batchNo,
         specification: values.specification,
-        expiryDate: values.expiryDate.format('YYYY-MM-DD'),
+        expiryDate: expiryDateStr,
         location: values.location,
         quantity: values.quantity,
         unit: values.unit || '支',
@@ -172,16 +183,29 @@ export default function Inventory() {
         remark: values.remark,
       });
 
-      if (scanState === 'notfound' && scannedBarcode) {
-        addBarcodeInfo({
-          barcode: scannedBarcode,
-          name: values.name,
-          category: values.category,
-          specification: values.specification,
-          unit: values.unit || '支',
-          defaultLocation: values.location,
-        });
-        message.success('入库成功，条码信息已保存');
+      if (scannedBarcode) {
+        if (scanState === 'notfound') {
+          addBarcodeInfo({
+            barcode: scannedBarcode,
+            name: values.name,
+            category: values.category,
+            specification: values.specification,
+            unit: values.unit || '支',
+            defaultLocation: values.location,
+            defaultBatchNo: values.batchNo,
+            lastExpiryDate: expiryDateStr,
+            lastInDate: dayjs().format('YYYY-MM-DD'),
+            lastQuantity: values.quantity,
+          });
+          message.success('入库成功，条码信息已保存');
+        } else {
+          updateBarcodeLastInfo(scannedBarcode, {
+            batchNo: values.batchNo,
+            expiryDate: expiryDateStr,
+            quantity: values.quantity,
+          });
+          message.success('入库登记成功，条码信息已更新');
+        }
       } else {
         message.success('入库登记成功');
       }
@@ -443,7 +467,7 @@ export default function Inventory() {
                       message="条码已识别"
                       description={
                         <div>
-                          已从条码库自动带出以下信息，请补充批号、有效期和数量后确认入库
+                          已从条码库自动带出材料信息及最近入库记录，请核对或修改后确认入库
                         </div>
                       }
                       className="mb-4"
@@ -452,16 +476,24 @@ export default function Inventory() {
                       column={2}
                       size="small"
                       className="mb-4"
-                      styles={{
-                        label: { backgroundColor: '#f6ffed', width: 100 },
-                        content: { backgroundColor: '#fff' },
-                      }}
+                      bordered
                     >
-                      <Descriptions.Item label="材料名称">{foundBarcodeInfo.name}</Descriptions.Item>
+                      <Descriptions.Item label="材料名称" span={2}>{foundBarcodeInfo.name}</Descriptions.Item>
                       <Descriptions.Item label="分类">{getCategoryLabel(foundBarcodeInfo.category)}</Descriptions.Item>
                       <Descriptions.Item label="规格">{foundBarcodeInfo.specification}</Descriptions.Item>
                       <Descriptions.Item label="单位">{foundBarcodeInfo.unit}</Descriptions.Item>
-                      <Descriptions.Item label="默认位置" span={2}>{foundBarcodeInfo.defaultLocation}</Descriptions.Item>
+                      <Descriptions.Item label="存放位置">{foundBarcodeInfo.defaultLocation}</Descriptions.Item>
+                      {foundBarcodeInfo.defaultBatchNo && (
+                        <Descriptions.Item label="默认批号" span={2}>
+                          <Tag color="blue">{foundBarcodeInfo.defaultBatchNo}</Tag>
+                        </Descriptions.Item>
+                      )}
+                      {foundBarcodeInfo.lastExpiryDate && (
+                        <Descriptions.Item label="最近有效期">{foundBarcodeInfo.lastExpiryDate}</Descriptions.Item>
+                      )}
+                      {foundBarcodeInfo.lastQuantity && (
+                        <Descriptions.Item label="最近入库量">{foundBarcodeInfo.lastQuantity} {foundBarcodeInfo.unit}</Descriptions.Item>
+                      )}
                     </Descriptions>
                   </>
                 )}

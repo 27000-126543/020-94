@@ -1,5 +1,5 @@
 import dayjs from 'dayjs';
-import { Material, UsageRecord, ProcessRecord, BarcodeInfo } from '@/types';
+import { Material, UsageRecord, ProcessRecord, BarcodeInfo, StocktakeRecord } from '@/types';
 import { getStatusByExpiryDate, generateId } from '@/utils/status';
 
 const today = dayjs();
@@ -68,7 +68,8 @@ export const mockUsageRecords: UsageRecord[] = [
     quantity: 3,
     user: '刘医生',
     department: '综合科',
-    remark: '补牙用',
+    purpose: '补牙',
+    remark: '前牙美学修复',
   },
   {
     id: generateId(),
@@ -77,6 +78,7 @@ export const mockUsageRecords: UsageRecord[] = [
     quantity: 2,
     user: '陈医生',
     department: '修复科',
+    purpose: '嵌体修复',
   },
   {
     id: generateId(),
@@ -85,6 +87,7 @@ export const mockUsageRecords: UsageRecord[] = [
     quantity: 1,
     user: '王医生',
     department: '美容牙科',
+    purpose: '贴面修复',
   },
   {
     id: generateId(),
@@ -93,31 +96,34 @@ export const mockUsageRecords: UsageRecord[] = [
     quantity: 2,
     user: '李医生',
     department: '牙体牙髓科',
-    remark: '粘接用',
+    purpose: '粘接',
+    remark: '全冠粘接',
   },
   {
     id: generateId(),
-    materialId: mockMaterials[8].id,
+    materialId: mockMaterials[7].id,
     date: today.subtract(1, 'day').format('YYYY-MM-DD'),
     quantity: 8,
     user: '赵医生',
     department: '口腔外科',
+    purpose: '拔牙麻醉',
   },
   {
     id: generateId(),
-    materialId: mockMaterials[9].id,
+    materialId: mockMaterials[8].id,
     date: today.subtract(3, 'day').format('YYYY-MM-DD'),
     quantity: 5,
     user: '孙医生',
     department: '综合科',
-    remark: '拔牙用',
+    purpose: '拔牙麻醉',
+    remark: '智齿拔除',
   },
 ];
 
 export const mockProcessRecords: ProcessRecord[] = [
   {
     id: generateId(),
-    materialId: mockMaterials[8].id,
+    materialId: mockMaterials[7].id,
     type: 'priorityUse',
     date: today.subtract(1, 'day').format('YYYY-MM-DD'),
     handler: '王护士长',
@@ -125,7 +131,7 @@ export const mockProcessRecords: ProcessRecord[] = [
   },
   {
     id: generateId(),
-    materialId: mockMaterials[7].id,
+    materialId: mockMaterials[6].id,
     type: 'priorityUse',
     date: today.subtract(2, 'day').format('YYYY-MM-DD'),
     handler: '李管理员',
@@ -133,7 +139,7 @@ export const mockProcessRecords: ProcessRecord[] = [
   },
   {
     id: generateId(),
-    materialId: mockMaterials[15].id,
+    materialId: mockMaterials[16].id,
     type: 'scrap',
     date: today.format('YYYY-MM-DD'),
     handler: '王护士长',
@@ -146,6 +152,16 @@ export const mockProcessRecords: ProcessRecord[] = [
     date: today.subtract(5, 'day').format('YYYY-MM-DD'),
     handler: '张护士',
     remark: '联系供应商换货，包装破损',
+    followUpStatus: 'contacted',
+  },
+  {
+    id: generateId(),
+    materialId: mockMaterials[2].id,
+    type: 'returnExchange',
+    date: today.subtract(8, 'day').format('YYYY-MM-DD'),
+    handler: '李管理员',
+    remark: '效期不足3个月，联系供应商退换',
+    followUpStatus: 'pending',
   },
 ];
 
@@ -157,6 +173,10 @@ export const mockBarcodeLibrary: BarcodeInfo[] = [
     specification: 'A3 色 4g/支',
     unit: '支',
     defaultLocation: '冷藏柜 A-01',
+    defaultBatchNo: '20241205',
+    lastExpiryDate: today.add(180, 'day').format('YYYY-MM-DD'),
+    lastInDate: today.subtract(10, 'day').format('YYYY-MM-DD'),
+    lastQuantity: 25,
   },
   {
     barcode: '6901234567891',
@@ -165,6 +185,10 @@ export const mockBarcodeLibrary: BarcodeInfo[] = [
     specification: 'A2 色 3g/支',
     unit: '支',
     defaultLocation: '冷藏柜 A-02',
+    defaultBatchNo: '20250108',
+    lastExpiryDate: today.add(120, 'day').format('YYYY-MM-DD'),
+    lastInDate: today.subtract(15, 'day').format('YYYY-MM-DD'),
+    lastQuantity: 18,
   },
   {
     barcode: '6901234567892',
@@ -173,6 +197,10 @@ export const mockBarcodeLibrary: BarcodeInfo[] = [
     specification: '6ml/瓶',
     unit: '瓶',
     defaultLocation: '冷藏柜 B-02',
+    defaultBatchNo: '20241022',
+    lastExpiryDate: today.add(25, 'day').format('YYYY-MM-DD'),
+    lastInDate: today.subtract(20, 'day').format('YYYY-MM-DD'),
+    lastQuantity: 10,
   },
   {
     barcode: '6901234567893',
@@ -181,6 +209,10 @@ export const mockBarcodeLibrary: BarcodeInfo[] = [
     specification: '1.7ml/支',
     unit: '支',
     defaultLocation: '麻药柜 C-01',
+    defaultBatchNo: '20240615',
+    lastExpiryDate: today.add(5, 'day').format('YYYY-MM-DD'),
+    lastInDate: today.subtract(25, 'day').format('YYYY-MM-DD'),
+    lastQuantity: 50,
   },
   {
     barcode: '6901234567894',
@@ -189,6 +221,10 @@ export const mockBarcodeLibrary: BarcodeInfo[] = [
     specification: '1.7ml/支',
     unit: '支',
     defaultLocation: '麻药柜 C-03',
+    defaultBatchNo: '20250210',
+    lastExpiryDate: today.add(200, 'day').format('YYYY-MM-DD'),
+    lastInDate: today.subtract(8, 'day').format('YYYY-MM-DD'),
+    lastQuantity: 100,
   },
   {
     barcode: '6901234567895',
@@ -197,6 +233,10 @@ export const mockBarcodeLibrary: BarcodeInfo[] = [
     specification: '粉+液套装',
     unit: '套',
     defaultLocation: '材料柜 D-01',
+    defaultBatchNo: '20240805',
+    lastExpiryDate: today.add(15, 'day').format('YYYY-MM-DD'),
+    lastInDate: today.subtract(30, 'day').format('YYYY-MM-DD'),
+    lastQuantity: 3,
   },
   {
     barcode: '6901234567896',
@@ -205,6 +245,10 @@ export const mockBarcodeLibrary: BarcodeInfo[] = [
     specification: '基质+催化剂',
     unit: '套',
     defaultLocation: '材料柜 E-01',
+    defaultBatchNo: '20241105',
+    lastExpiryDate: today.add(20, 'day').format('YYYY-MM-DD'),
+    lastInDate: today.subtract(12, 'day').format('YYYY-MM-DD'),
+    lastQuantity: 4,
   },
   {
     barcode: '6901234567897',
@@ -213,6 +257,10 @@ export const mockBarcodeLibrary: BarcodeInfo[] = [
     specification: '500g/袋',
     unit: '袋',
     defaultLocation: '材料柜 E-02',
+    defaultBatchNo: '20241218',
+    lastExpiryDate: today.add(65, 'day').format('YYYY-MM-DD'),
+    lastInDate: today.subtract(18, 'day').format('YYYY-MM-DD'),
+    lastQuantity: 12,
   },
   {
     barcode: '6901234567898',
@@ -221,6 +269,10 @@ export const mockBarcodeLibrary: BarcodeInfo[] = [
     specification: '4ml/瓶',
     unit: '瓶',
     defaultLocation: '冷藏柜 B-03',
+    defaultBatchNo: '20241130',
+    lastExpiryDate: today.add(12, 'day').format('YYYY-MM-DD'),
+    lastInDate: today.subtract(22, 'day').format('YYYY-MM-DD'),
+    lastQuantity: 5,
   },
   {
     barcode: '6901234567899',
@@ -229,5 +281,11 @@ export const mockBarcodeLibrary: BarcodeInfo[] = [
     specification: '1.8ml/支',
     unit: '支',
     defaultLocation: '麻药柜 C-02',
+    defaultBatchNo: '20240720',
+    lastExpiryDate: today.add(3, 'day').format('YYYY-MM-DD'),
+    lastInDate: today.subtract(28, 'day').format('YYYY-MM-DD'),
+    lastQuantity: 30,
   },
 ];
+
+export const mockStocktakeRecords: StocktakeRecord[] = [];

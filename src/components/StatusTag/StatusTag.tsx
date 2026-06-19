@@ -5,10 +5,16 @@ import { STATUS_MAP } from '@/utils/status';
 interface StatusTagProps {
   status: MaterialStatus;
   showPulse?: boolean;
+  className?: string;
 }
 
-export default function StatusTag({ status, showPulse = false }: StatusTagProps) {
+export default function StatusTag({ status, showPulse = false, className }: StatusTagProps) {
   const info = STATUS_MAP[status];
+
+  const tagClass = [
+    showPulse && (status === 'warning7' || status === 'expired') ? 'animate-pulse' : '',
+    className || '',
+  ].filter(Boolean).join(' ');
 
   return (
     <Tag
@@ -21,7 +27,7 @@ export default function StatusTag({ status, showPulse = false }: StatusTagProps)
         fontWeight: 500,
         position: 'relative',
       }}
-      className={showPulse && (status === 'warning7' || status === 'expired') ? 'animate-pulse' : ''}
+      className={tagClass}
     >
       {info.label}
     </Tag>
