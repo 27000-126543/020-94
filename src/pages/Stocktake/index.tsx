@@ -15,9 +15,7 @@ import {
   Modal,
   message,
   Tabs,
-  List,
   Empty,
-  Divider,
 } from 'antd';
 import {
   ClipboardCheck,
@@ -28,7 +26,6 @@ import {
   TrendingDown,
   Minus,
   User,
-  FileText,
   Calendar,
   Package,
   AlertTriangle,
@@ -42,7 +39,6 @@ import { getCategoryLabel } from '@/utils/status';
 import dayjs from 'dayjs';
 
 const { Option } = Select;
-const { TextArea } = Input;
 
 interface StocktakeItem {
   materialId: string;
@@ -64,7 +60,6 @@ export default function StocktakePage() {
     stocktakeRecords,
     addStocktakeRecord,
     generateStocktakeByLocation,
-    getAllHandlers,
   } = useMaterialStore();
 
   const [selectedLocation, setSelectedLocation] = useState<string>('');
@@ -72,7 +67,7 @@ export default function StocktakePage() {
   const [handler, setHandler] = useState<string>('');
   const [isStarted, setIsStarted] = useState(false);
   const [submitModalVisible, setSubmitModalVisible] = useState(false);
-  const [form] = Form.useForm();
+  const [activeTab, setActiveTab] = useState<string>('new');
 
   const locations = getAllLocations();
 
@@ -82,6 +77,10 @@ export default function StocktakePage() {
       return;
     }
     const items = generateStocktakeByLocation(selectedLocation);
+    if (items.length === 0) {
+      message.warning('该位置暂无材料，请选择其他位置');
+      return;
+    }
     const formatted: StocktakeItem[] = items.map((item) => ({
       ...item,
       actualQuantity: null,
@@ -89,6 +88,7 @@ export default function StocktakePage() {
     }));
     setStocktakeItems(formatted);
     setIsStarted(true);
+    message.success(`已生成 ${formatted.length} 项材料的盘点清单`);
   };
 
   const handleQuantityChange = (materialId: string, value: number | null) => {
@@ -128,8 +128,14 @@ export default function StocktakePage() {
       message.warning('请完成所有材料的实盘数量录入');
       return;
     }
-    if (!handler.trim()) {
-      message.warning('请输入经办人姓名');
+    if (!handler || !handler.trim()) {
+      message.warning('请输入经办人姓名，不能只输入空格');
+      return;
+    }
+    const diffItems = stocktakeItems.filter((i) => i.difference !== 0);
+    const noReasonItems = diffItems.filter((i) => !i.reason || !i.reason.trim());
+    if (noReasonItems.length > 0) {
+      message.warning(`有 ${noReasonItems.length} 项盘盈/盘亏未填写差异原因，请补齐后再保存`);
       return;
     }
     setSubmitModalVisible(true);
@@ -164,26 +170,41 @@ export default function StocktakePage() {
     setStocktakeItems([]);
     setSelectedLocation('');
     setHandler('');
+    setActiveTab('history');
   };
 
   const handleReset = () => {
-    setIsStarted(false);
-    setStocktakeItems([]);
-    setHandler('');
+    Modal.confirm({
+      title: '确认重新开始？',
+      content: '当前已录入的实盘数据将被清空',
+      okText: '确定',
+      cancelText: '取消',
+      onOk: () => {
+        setIsStarted(false);
+        setStocktakeItems([]);
+        setHandler('');
+      },
+    });
   };
 
   const historyRecords = useMemo(() => {
     return [...stocktakeRecords]
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .slice(0, 50);
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [stocktakeRecords]);
 
   const differenceColumns = [
     {
+      title: '盘点日期',
+      dataIndex: 'date',
+      key: 'date',
+      width: 110,
+      fixed: 'left' as const,
+    },
+    {
       title: '材料名称',
       dataIndex: 'name',
       key: 'name',
-      width: 200,
+      width: 180,
       render: (text: string, record: StocktakeRecord) => (
         <div>
           <div className="font-medium text-gray-800">{text}</div>
@@ -197,33 +218,33 @@ export default function StocktakePage() {
       title: '批号',
       dataIndex: 'batchNo',
       key: 'batchNo',
-      width: 120,
+      width: 110,
       render: (text: string) => <span className="font-mono text-sm">{text}</span>,
     },
     {
       title: '规格',
       dataIndex: 'specification',
       key: 'specification',
-      width: 150,
+      width: 140,
     },
     {
       title: '存放位置',
       dataIndex: 'location',
       key: 'location',
-      width: 130,
+      width: 120,
     },
     {
       title: '账面数量',
       dataIndex: 'systemQuantity',
       key: 'systemQuantity',
-      width: 100,
+      width: 90,
       render: (val: number, record: StocktakeRecord) => `${val} ${record.unit}`,
     },
     {
       title: '实盘数量',
       dataIndex: 'actualQuantity',
       key: 'actualQuantity',
-      width: 100,
+      width: 90,
       render: (val: number, record: StocktakeRecord) => `${val} ${record.unit}`,
     },
     {
@@ -259,13 +280,7 @@ export default function StocktakePage() {
       title: '经办人',
       dataIndex: 'handler',
       key: 'handler',
-      width: 100,
-    },
-    {
-      title: '盘点日期',
-      dataIndex: 'date',
-      key: 'date',
-      width: 120,
+      width: 90,
     },
     {
       title: '差异原因',
@@ -327,7 +342,7 @@ export default function StocktakePage() {
       title: '差异',
       dataIndex: 'difference',
       key: 'difference',
-      width: 100,
+      width: 110,
       render: (val: number) => {
         if (val > 0) {
           return (
@@ -355,14 +370,15 @@ export default function StocktakePage() {
       title: '差异原因',
       dataIndex: 'reason',
       key: 'reason',
-      width: 200,
+      width: 220,
       render: (_: any, record: StocktakeItem) =>
         record.difference !== 0 ? (
           <Input
-            placeholder="请填写差异原因"
+            placeholder={record.difference > 0 ? '请说明盘盈原因' : '请说明盘亏原因'}
             size="small"
             value={record.reason}
             onChange={(e) => handleReasonChange(record.materialId, e.target.value)}
+            status={record.difference !== 0 && (!record.reason || !record.reason.trim()) ? 'error' : ''}
           />
         ) : (
           <span className="text-gray-400">-</span>
@@ -370,26 +386,164 @@ export default function StocktakePage() {
     },
   ];
 
-  const tabItems = [
-    {
-      key: 'new',
-      label: (
-        <span className="flex items-center gap-1">
-          <ClipboardCheck size={16} />
-          新建盘点
-        </span>
-      ),
-    },
-    {
-      key: 'history',
-      label: (
-        <span className="flex items-center gap-1">
-          <History size={16} />
-          历史记录
-        </span>
-      ),
-    },
-  ];
+  const newTabContent = !isStarted ? (
+    <div className="text-center py-12">
+      <div className="w-20 h-20 rounded-2xl bg-blue-50 flex items-center justify-center mx-auto mb-4">
+        <ClipboardCheck size={36} className="text-blue-500" />
+      </div>
+      <h3 className="text-lg font-medium text-gray-800 mb-2">
+        选择存放位置开始盘点
+      </h3>
+      <p className="text-gray-500 text-sm mb-6">
+        系统会自动生成该位置所有材料的盘点清单，供逐一核对实盘数量
+      </p>
+      <div className="flex items-center justify-center gap-3 max-w-md mx-auto">
+        <Select
+          placeholder="请选择存放位置"
+          style={{ flex: 1 }}
+          size="large"
+          value={selectedLocation || undefined}
+          onChange={setSelectedLocation}
+        >
+          {locations.map((loc) => (
+            <Option key={loc} value={loc}>
+              {loc}
+            </Option>
+          ))}
+        </Select>
+        <Button
+          type="primary"
+          size="large"
+          icon={<Plus size={18} />}
+          onClick={handleGenerate}
+          disabled={!selectedLocation}
+        >
+          生成盘点单
+        </Button>
+      </div>
+      {locations.length === 0 && (
+        <p className="text-orange-500 text-sm mt-4">
+          暂无可用存放位置，请先在入库登记中添加材料
+        </p>
+      )}
+    </div>
+  ) : (
+    <div className="mt-4">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div className="flex items-center gap-2">
+          <MapPin size={18} className="text-blue-500" />
+          <span className="font-medium text-lg text-gray-800">{selectedLocation}</span>
+          <Tag color="blue">{stocktakeItems.length} 项材料</Tag>
+        </div>
+        <Space wrap>
+          <Button icon={<RefreshCw size={14} />} onClick={handleReset}>
+            重新开始
+          </Button>
+          <Input
+            placeholder="请输入经办人姓名 *"
+            prefix={<User size={14} className="text-gray-400" />}
+            value={handler}
+            onChange={(e) => setHandler(e.target.value)}
+            style={{ width: 180 }}
+            status={handler && !handler.trim() ? 'error' : ''}
+          />
+          <Button
+            type="primary"
+            icon={<Save size={16} />}
+            onClick={handleSubmit}
+            disabled={stats.completed === 0}
+          >
+            完成盘点
+          </Button>
+        </Space>
+      </div>
+
+      <Row gutter={[16, 16]} className="mb-4">
+        <Col span={6}>
+          <Card size="small">
+            <Statistic
+              title="材料总数"
+              value={stats.total}
+              suffix="项"
+              prefix={<Package size={16} className="text-gray-400" />}
+            />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card size="small">
+            <Statistic
+              title="已盘点"
+              value={stats.completed}
+              suffix="项"
+              valueStyle={{ color: '#1677ff' }}
+              prefix={<CheckCircle2 size={16} className="text-blue-500" />}
+            />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card size="small">
+            <Statistic
+              title="盘盈"
+              value={stats.surplus}
+              suffix="项"
+              valueStyle={{ color: '#52c41a' }}
+              prefix={<TrendingUp size={16} className="text-green-500" />}
+            />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card size="small">
+            <Statistic
+              title="盘亏"
+              value={stats.deficit}
+              suffix="项"
+              valueStyle={{ color: '#ff4d4f' }}
+              prefix={<TrendingDown size={16} className="text-red-500" />}
+            />
+          </Card>
+        </Col>
+      </Row>
+
+      <Table
+        columns={columns}
+        dataSource={stocktakeItems}
+        rowKey="materialId"
+        pagination={false}
+        scroll={{ y: 500 }}
+        size="small"
+      />
+    </div>
+  );
+
+  const historyTabContent = (
+    <div className="mt-4">
+      {historyRecords.length > 0 ? (
+        <Table
+          columns={differenceColumns}
+          dataSource={historyRecords}
+          rowKey="id"
+          pagination={{
+            pageSize: 20,
+            showSizeChanger: true,
+            showTotal: (total) => `共 ${total} 条记录`,
+          }}
+          scroll={{ x: 1100 }}
+          size="small"
+        />
+      ) : (
+        <Empty
+          description={
+            <div className="py-8">
+              <p className="mb-2">暂无盘点记录</p>
+              <Button type="link" onClick={() => setActiveTab('new')}>
+                去新建盘点
+              </Button>
+            </div>
+          }
+        />
+      )}
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -402,152 +556,37 @@ export default function StocktakePage() {
         }
         className="shadow-sm"
       >
-        <Tabs items={tabItems} defaultActiveKey="new" />
-
-        <Tabs.TabPane tab="新建盘点" key="new">
-          {!isStarted ? (
-            <div className="text-center py-12">
-              <div className="w-20 h-20 rounded-2xl bg-blue-50 flex items-center justify-center mx-auto mb-4">
-                <ClipboardCheck size={36} className="text-blue-500" />
-              </div>
-              <h3 className="text-lg font-medium text-gray-800 mb-2">
-                选择存放位置开始盘点
-              </h3>
-              <p className="text-gray-500 text-sm mb-6">
-                系统会自动生成该位置所有材料的盘点清单
-              </p>
-              <div className="flex items-center justify-center gap-3 max-w-md mx-auto">
-                <Select
-                  placeholder="请选择存放位置"
-                  style={{ flex: 1 }}
-                  size="large"
-                  value={selectedLocation || undefined}
-                  onChange={setSelectedLocation}
-                >
-                  {locations.map((loc) => (
-                    <Option key={loc} value={loc}>
-                      {loc}
-                    </Option>
-                  ))}
-                </Select>
-                <Button
-                  type="primary"
-                  size="large"
-                  icon={<Plus size={18} />}
-                  onClick={handleGenerate}
-                  disabled={!selectedLocation}
-                >
-                  生成盘点单
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-4">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <MapPin size={18} className="text-blue-500" />
-                  <span className="font-medium text-lg text-gray-800">{selectedLocation}</span>
-                  <Tag color="blue">{stocktakeItems.length} 项材料</Tag>
-                </div>
-                <Space>
-                  <Button icon={<RefreshCw size={14} />} onClick={handleReset}>
-                    重新开始
-                  </Button>
-                  <Input
-                    placeholder="请输入经办人姓名"
-                    prefix={<User size={14} className="text-gray-400" />}
-                    value={handler}
-                    onChange={(e) => setHandler(e.target.value)}
-                    style={{ width: 180 }}
-                  />
-                  <Button
-                    type="primary"
-                    icon={<Save size={16} />}
-                    onClick={handleSubmit}
-                    disabled={stats.completed === 0}
-                  >
-                    完成盘点
-                  </Button>
-                </Space>
-              </div>
-
-              <Row gutter={[16, 16]} className="mb-4">
-                <Col span={6}>
-                  <Card size="small">
-                    <Statistic
-                      title="材料总数"
-                      value={stats.total}
-                      suffix="项"
-                      prefix={<Package size={16} className="text-gray-400" />}
-                    />
-                  </Card>
-                </Col>
-                <Col span={6}>
-                  <Card size="small">
-                    <Statistic
-                      title="已盘点"
-                      value={stats.completed}
-                      suffix="项"
-                      valueStyle={{ color: '#1677ff' }}
-                      prefix={<CheckCircle2 size={16} className="text-blue-500" />}
-                    />
-                  </Card>
-                </Col>
-                <Col span={6}>
-                  <Card size="small">
-                    <Statistic
-                      title="盘盈"
-                      value={stats.surplus}
-                      suffix="项"
-                      valueStyle={{ color: '#52c41a' }}
-                      prefix={<TrendingUp size={16} className="text-green-500" />}
-                    />
-                  </Card>
-                </Col>
-                <Col span={6}>
-                  <Card size="small">
-                    <Statistic
-                      title="盘亏"
-                      value={stats.deficit}
-                      suffix="项"
-                      valueStyle={{ color: '#ff4d4f' }}
-                      prefix={<TrendingDown size={16} className="text-red-500" />}
-                    />
-                  </Card>
-                </Col>
-              </Row>
-
-              <Table
-                columns={columns}
-                dataSource={stocktakeItems}
-                rowKey="materialId"
-                pagination={false}
-                scroll={{ y: 500 }}
-                size="small"
-              />
-            </div>
-          )}
-        </Tabs.TabPane>
-
-        <Tabs.TabPane tab="历史记录" key="history">
-          <div className="mt-4">
-            {historyRecords.length > 0 ? (
-              <Table
-                columns={differenceColumns}
-                dataSource={historyRecords}
-                rowKey="id"
-                pagination={{
-                  pageSize: 20,
-                  showSizeChanger: true,
-                  showTotal: (total) => `共 ${total} 条记录`,
-                }}
-                scroll={{ x: 1000 }}
-              />
-            ) : (
-              <Empty description="暂无盘点记录" />
-            )}
-          </div>
-        </Tabs.TabPane>
+        <Tabs
+          activeKey={activeTab}
+          onChange={setActiveTab}
+          items={[
+            {
+              key: 'new',
+              label: (
+                <span className="flex items-center gap-1">
+                  <ClipboardCheck size={16} />
+                  新建盘点
+                </span>
+              ),
+              children: newTabContent,
+            },
+            {
+              key: 'history',
+              label: (
+                <span className="flex items-center gap-1">
+                  <History size={16} />
+                  历史记录
+                  {stocktakeRecords.length > 0 && (
+                    <Tag color="blue" style={{ marginLeft: 4 }}>
+                      {stocktakeRecords.length}
+                    </Tag>
+                  )}
+                </span>
+              ),
+              children: historyTabContent,
+            },
+          ]}
+        />
       </Card>
 
       <Modal
@@ -588,7 +627,7 @@ export default function StocktakePage() {
               </div>
               <div className="text-sm">
                 <span className="text-gray-500">经办人：</span>
-                <span className="text-gray-800">{handler}</span>
+                <span className="text-gray-800">{handler.trim()}</span>
               </div>
             </div>
           </div>

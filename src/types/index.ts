@@ -63,8 +63,9 @@ export interface BarcodeInfo {
   unit: string;
   defaultLocation: string;
   defaultBatchNo?: string;
-  lastExpiryDate?: string;
+  defaultExpiryDate?: string;
   lastInDate?: string;
+  lastExpiryDate?: string;
   lastQuantity?: number;
 }
 
